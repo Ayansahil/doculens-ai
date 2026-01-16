@@ -13,7 +13,7 @@ import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import { useApp } from "../../context/AppContext";
 import { formatDate } from "../../utils/helpers";
-import api from "../../services/api";
+import {api} from "../../services/api";
 
 const Dashboard = () => {
   const { dashboardStats, setDashboardStats } = useApp();
