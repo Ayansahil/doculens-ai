@@ -15,102 +15,67 @@ const DocumentList = ({ documents = [], loading = false, onDocumentAction }) => 
   const [filterType, setFilterType] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Mock data if no documents provided
-  const mockDocuments = [
-    {
-      id: 1,
-      title: 'Q4 2024 Financial Report',
-      type: 'PDF',
-      category: 'Financial',
-      status: 'High Risk',
-      date: '2025-01-25',
-      size: '2.4 MB',
-      description: '3 inconsidencies flagged. Net profit variance: 12%',
-      project: 'Finance Review'
-    },
-    {
-      id: 2,
-      title: 'Smith v. Jones Contract',
-      type: 'PDF',
-      category: 'Legal',
-      status: 'Analysed',
-      date: '2025-01-20',
-      size: '1.8 MB',
-      description: 'Termination clause on page 7. Parties: John Smith, Jane Jones',
-      project: 'Legal Affairs'
-    },
-    {
-      id: 3,
-      title: 'Academic Research Paper',
-      type: 'PDF',
-      category: 'Academic',
-      status: 'Pending OCR',
-      date: '2025-01-10',
-      size: '3.2 MB',
-      description: 'Key findings on AI ethics discussed.',
-      project: 'Research'
-    }
-  ];
 
-  const displayDocuments = documents.length > 0 ? documents : mockDocuments;
+const filteredAndSortedDocuments = useMemo(() => {
+  let filtered = [...documents];
 
-  // Filter and sort documents
-  const filteredAndSortedDocuments = useMemo(() => {
-    let filtered = [...displayDocuments];
+ // Apply search filter
+  if (searchTerm) {
+    filtered = filtered.filter(doc =>
+      doc.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      doc.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      doc.category?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }
 
-    // Apply search filter
-    if (searchTerm) {
-      filtered = filtered.filter(doc =>
-        doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        doc.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        doc.category.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
+// Apply status filter
+  if (filterStatus !== 'all') {
+    filtered = filtered.filter(doc => doc.status === filterStatus);
+  }
 
-    // Apply status filter
-    if (filterStatus !== 'all') {
-      filtered = filtered.filter(doc => doc.status === filterStatus);
+  // Apply type filter
+  if (filterType !== 'all') {
+    filtered = filtered.filter(doc => doc.type === filterType);
+  }
+
+  // Apply sorting
+  filtered.sort((a, b) => {
+    let aValue, bValue;
+
+    switch (sortBy) {
+      case 'title':
+        aValue = a.title?.toLowerCase();
+        bValue = b.title?.toLowerCase();
+        break;
+
+      case 'date':
+        aValue = new Date(a.created_at);
+        bValue = new Date(b.created_at);
+        break;
+
+      case 'type':
+        aValue = a.type;
+        bValue = b.type;
+        break;
+
+      case 'status':
+        aValue = a.status;
+        bValue = b.status;
+        break;
+
+      default:
+        return 0;
     }
 
-    // Apply type filter
-    if (filterType !== 'all') {
-      filtered = filtered.filter(doc => doc.type === filterType);
+    if (sortOrder === 'asc') {
+      return aValue > bValue ? 1 : -1;
+    } else {
+      return aValue < bValue ? 1 : -1;
     }
+  });
 
-    // Apply sorting
-    filtered.sort((a, b) => {
-      let aValue, bValue;
-
-      switch (sortBy) {
-        case 'title':
-          aValue = a.title.toLowerCase();
-          bValue = b.title.toLowerCase();
-          break;
-        case 'date':
-          aValue = new Date(a.date);
-          bValue = new Date(b.date);
-          break;
-        case 'type':
-          aValue = a.type;
-          bValue = b.type;
-          break;
-        case 'status':
-          aValue = a.status;
-          bValue = b.status;
-          break;
-        default:
-          return 0;
-      }
-
-      if (sortOrder === 'asc') {
-        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
-      } else {
-        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
-      }
-    });
-
-    return filtered;
-  }, [displayDocuments, searchTerm, filterStatus, filterType, sortBy, sortOrder]);
+  return filtered;
+}, [documents, searchTerm, filterStatus, filterType, sortBy, sortOrder]);
 
   const handleSort = (field) => {
     if (sortBy === field) {
@@ -285,7 +250,7 @@ const DocumentList = ({ documents = [], loading = false, onDocumentAction }) => 
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDate(document.date)}
+                    {formatDate(document.created_at)}
                   </td>
                   <td className="px-6 py-4">
                     <Badge variant={getStatusBadgeVariant(document.status)}>
@@ -366,17 +331,20 @@ const DocumentList = ({ documents = [], loading = false, onDocumentAction }) => 
   );
 };
 
-export default DocumentList;
-
 DocumentList.propTypes = {
-  documents: PropTypes.arrayOf(PropTypes.shape({
-    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
-    title: PropTypes.string.isRequired,
-    type: PropTypes.string.isRequired,
-    category: PropTypes.string.isRequired,
-    status: PropTypes.string.isRequired,
-    date: PropTypes.string.isRequired,
-  })),
+  documents: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+      title: PropTypes.string.isRequired,
+      type: PropTypes.string.isRequired,
+      category: PropTypes.string.isRequired,
+      status: PropTypes.string.isRequired,
+      created_at: PropTypes.string.isRequired,
+      project: PropTypes.string,
+    })
+  ),
   loading: PropTypes.bool,
   onDocumentAction: PropTypes.func,
 };
+
+export default DocumentList;

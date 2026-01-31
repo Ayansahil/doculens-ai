@@ -1,21 +1,32 @@
-import { useState, useEffect } from 'react';
-import DocumentList from '../components/features/DocumentList';
-import DocumentUpload from '../components/features/DocumentUpload';
-import ChatBot from '../components/features/ChatBot';
-import { useDocuments } from '../hooks/useDocuments';
-import { useApp } from '../context/AppContext';
+import { useState, useEffect } from "react";
+import DocumentList from "../components/features/DocumentList";
+import DocumentUpload from "../components/features/DocumentUpload";
+import ChatBot from "../components/features/ChatBot";
+import { useDocuments } from "../hooks/useDocuments";
+import { useApp } from "../context/AppContext";
 
 const Documents = () => {
   const [selectedDocument, setSelectedDocument] = useState(null);
-  const { documents, loading, error, updateFilters, fetchDocuments } = useDocuments();
+
+  const {
+    documents,
+    loading,
+    error,
+    fetchDocuments,
+    updateFilters,
+  } = useDocuments();
+
   const { searchQuery } = useApp();
 
+  // 🔍 Search filter (NO fetch loop)
   useEffect(() => {
-    updateFilters({ query: searchQuery });
-  }, [searchQuery]);
+    if (searchQuery !== undefined) {
+      updateFilters({ query: searchQuery });
+    }
+  }, [searchQuery, updateFilters]);
 
   const handleDocumentAction = (action, document) => {
-    if (action === 'view') {
+    if (action === "view") {
       setSelectedDocument(document);
     }
   };
@@ -32,10 +43,10 @@ const Documents = () => {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Documents</h1>
 
-      {/* Upload Section */}
+      {/* ⬆️ Upload */}
       <DocumentUpload onUploadComplete={fetchDocuments} />
 
-      {/* Documents List */}
+      {/* 📄 Documents + 🤖 Chat */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <DocumentList
@@ -46,7 +57,7 @@ const Documents = () => {
         </div>
 
         <div className="lg:col-span-1">
-          <ChatBot documentId={selectedDocument?.id} />
+          <ChatBot documentId={selectedDocument?.id || null} />
         </div>
       </div>
     </div>

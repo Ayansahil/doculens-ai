@@ -1,52 +1,68 @@
-import { useState, useEffect, useCallback } from 'react';
-import { documentService } from '../services/documentService';
+import { useState, useEffect, useCallback } from "react";
+import documentService from "../services/documentService";
 
 export const useDocuments = (initialFilters = {}) => {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
   const [filters, setFilters] = useState(initialFilters);
+
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
     total: 0,
-    totalPages: 0
+    totalPages: 0,
   });
 
-  const fetchDocuments = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // ✅ FETCH (NO pagination dependency inside callback)
+  const fetchDocuments = useCallback(
+    async (page = pagination.page) => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      const params = {
-        ...filters,
-        page: pagination.page,
-        limit: pagination.limit
-      };
+        const params = {
+          ...filters,
+          page,
+          limit: pagination.limit,
+        };
 
-      const response = await documentService.getDocuments(params);
+        const res = await documentService.getDocuments(params);
 
-      setDocuments(response.documents || []);
-      setPagination({
-        page: response.page || 1,
-        limit: response.limit || 10,
-        total: response.total || 0,
-        totalPages: response.totalPages || 0
-      });
-    } catch (err) {
-      setError(err.message || 'Failed to load documents');
-    } finally {
-      setLoading(false);
-    }
-  }, [filters, pagination.page, pagination.limit]);
+        setDocuments(res.documents || []);
 
+        // ✅ pagination updated ONCE, not triggering loop
+        setPagination((prev) => ({
+          ...prev,
+          page: res.page ?? prev.page,
+          total: res.total ?? 0,
+          totalPages: res.totalPages ?? 0,
+        }));
+      } catch (err) {
+        console.error(err);
+        setError("Failed to load documents");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [filters, pagination.limit] // ❗ page removed from dependency
+  );
+
+  // ✅ runs only when filters OR page changes
   useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
+    fetchDocuments(pagination.page);
+  }, [filters, pagination.page, fetchDocuments]);
 
-  const updateFilters = (newFilters) => {
-    setFilters(prev => ({ ...prev, ...newFilters }));
-    setPagination(prev => ({ ...prev, page: 1 }));
+  // ✅ safe filter update
+  const updateFilters = useCallback((newFilters) => {
+    setFilters((prev) => ({ ...prev, ...newFilters }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
+  }, []);
+
+  // ✅ page change handler (future use)
+  const changePage = (page) => {
+    setPagination((prev) => ({ ...prev, page }));
   };
 
   return {
@@ -55,6 +71,7 @@ export const useDocuments = (initialFilters = {}) => {
     error,
     pagination,
     updateFilters,
-    fetchDocuments
+    fetchDocuments,
+    changePage,
   };
 };
