@@ -170,7 +170,7 @@ const filteredAndSortedDocuments = useMemo(() => {
 
       {/* Documents Table */}
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto h-[320px] overflow-y-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>

@@ -78,7 +78,7 @@ const DocumentUpload = ({ onUploadComplete }) => {
 
       <div className="border-dashed border-2 p-6 text-center">
         <Upload className="mx-auto mb-2 " />
-        <Button onClick={() => inputRef.current.click()}>
+        <Button variant="outline" onClick={() => inputRef.current.click()}>
           Choose Files
         </Button>
       </div>
