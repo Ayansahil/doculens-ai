@@ -155,3 +155,32 @@ export const deleteDocument = async (req, res) => {
     res.status(500).json({ message: 'Failed to delete document', error: error.message });
   }
 };
+
+export const downloadDocumentLogic = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from('documents')
+      .select('file_url, title')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const filePath = path.join(process.cwd(), data.file_url);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${data.title}"`
+    );
+
+    res.sendFile(filePath);
+  } catch (err) {
+    console.error('Download error:', err);
+    res.status(500).json({ message: 'Failed to download document' });
+  }
+};

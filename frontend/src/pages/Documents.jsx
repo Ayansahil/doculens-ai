@@ -7,6 +7,8 @@ import { useApp } from "../context/AppContext";
 import { documentService } from "../services/documentService";
 import ConfirmModal from "../components/ui/ConfirmModal";
 import StatusModal from "../components/ui/StatusModal";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 const Documents = () => {
   // 📄 currently selected document (for view / chatbot)
@@ -34,6 +36,11 @@ const Documents = () => {
   const handleDocumentAction = (action, document) => {
     // 👁️ View document
     if (action === "view") {
+      if (document?.file_url) {
+        window.open(`${API_BASE_URL}${document.file_url}`, "_blank");
+      } else {
+        alert("File URL not found");
+      }
       setSelectedDocument(document);
       return;
     }
@@ -43,9 +50,29 @@ const Documents = () => {
       setDeleteTarget(document);
     }
 
+    // ✏️ Edit status
     if (action === "edit") {
       setEditTarget(document);
       setNewStatus(document.status); // current status prefill
+    }
+
+    // ⬇️ Download document
+    if (action === "download") {
+      try {
+        const fileUrl = `${import.meta.env.VITE_API_BASE_URL}/documents/${document.id}/download`;
+
+        // 🔽 force download (IMPORTANT FIX)
+        const link = window.document.createElement("a");
+        link.href = fileUrl;
+        link.download = document.title || "document";
+        window.document.body.appendChild(link);
+        link.click();
+        window.document.body.removeChild(link);
+      } catch (err) {
+        console.error("Download failed:", err);
+        alert("Failed to download document");
+      }
+      return;
     }
   };
 
@@ -124,8 +151,6 @@ const Documents = () => {
           }
         }}
       />
-
-      
     </div>
   );
 };
