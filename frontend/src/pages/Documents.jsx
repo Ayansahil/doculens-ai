@@ -35,8 +35,27 @@ const Documents = () => {
     }
   }, [searchQuery, updateFilters]);
 
-  // 🎯 Handle actions coming from DocumentList (view / delete)
+  // 🎯 Handle actions coming from DocumentList (select / view / delete / edit / download)
   const handleDocumentAction = async (action, document) => {
+    // 🎯 Select document (for chatbot analysis & summary)
+    if (action === "select") {
+      setSelectedDocument(document);
+      setSummary(null);
+      setSummaryLoading(true);
+
+      try {
+        const res = await documentService.summarizeDocument(document.id);
+        setSummary(res.summary);
+      } catch (err) {
+        console.error("Summary failed", err);
+        setSummary("Failed to generate summary.");
+      } finally {
+        setSummaryLoading(false);
+      }
+
+      return;
+    }
+
     // 👁️ View document
     if (action === "view") {
       if (document?.file_url) {
@@ -112,15 +131,15 @@ const Documents = () => {
           <DocumentList
             documents={documents}
             loading={loading}
+            selectedDocumentId={selectedDocument?.id || null}
             onDocumentAction={handleDocumentAction}
           />
-
-       
         </div>
 
         <div className="lg:col-span-1 max-h-[485px]">
           <ChatBot
             documentId={selectedDocument?.id || null}
+            selectedDocument={selectedDocument}
             summary={summary}
             summaryLoading={summaryLoading}
           />
@@ -139,6 +158,12 @@ const Documents = () => {
           try {
             // 🗑️ API call to delete document
             await documentService.deleteDocument(deleteTarget.id);
+
+            // 🧹 If deleted document was selected, reset it
+            if (selectedDocument?.id === deleteTarget.id) {
+              setSelectedDocument(null);
+              setSummary(null);
+            }
 
             // 🔄 refresh list after delete
             fetchDocuments();

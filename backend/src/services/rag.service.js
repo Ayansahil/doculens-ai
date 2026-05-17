@@ -160,13 +160,13 @@ export const chunkAndStore = async (documentId, text) => {
 /**
  * Retrieve relevant chunks using semantic search
  */
-export const getRelevantChunks = async (documentId, query, topK = 3) => {
+export const getRelevantChunks = async (documentId, query, topK = 3, matchThreshold = 0.0) => {
   try {
     const queryEmbedding = await generateEmbedding(query, "query");
 
     const { data, error } = await supabase.rpc("match_document_chunks", {
       query_embedding: queryEmbedding,
-      match_threshold: 0.1, // Adjust as needed
+      match_threshold: matchThreshold,
       match_count: topK,
       filter_document_id: documentId,
     });
@@ -176,9 +176,44 @@ export const getRelevantChunks = async (documentId, query, topK = 3) => {
       throw error;
     }
 
-    return data || [];
+    if (data && data.length > 0) {
+      return data;
+    }
   } catch (error) {
-    console.error("Error retrieving relevant chunks:", error.message);
+    console.error("Vector search retrieval unavailable:", error.message);
+  }
+
+  // Fallback: When vector retrieval is unavailable (e.g., rate limit / quota exhausted on embeddings API),
+  // retrieve chunks directly for documentId from document_chunks and rank by keyword overlap
+  try {
+    const { data: chunks, error } = await supabase
+      .from("document_chunks")
+      .select("id, content")
+      .eq("document_id", documentId);
+
+    if (error || !chunks || chunks.length === 0) {
+      return [];
+    }
+
+    const queryWords = query
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 2);
+
+    const scored = chunks.map((chunk) => {
+      const text = chunk.content.toLowerCase();
+      let score = 0;
+      for (const word of queryWords) {
+        if (text.includes(word)) score += 1;
+      }
+      return { ...chunk, similarity: score };
+    });
+
+    scored.sort((a, b) => b.similarity - a.similarity);
+    return scored.slice(0, topK);
+  } catch (fallbackErr) {
+    console.error("Error in fallback chunk retrieval:", fallbackErr.message);
     return [];
   }
 };
+

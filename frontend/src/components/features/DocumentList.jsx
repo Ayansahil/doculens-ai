@@ -21,6 +21,7 @@ import { DOCUMENT_STATUSES } from "../../utils/constants";
 const DocumentList = ({
   documents = [],
   loading = false,
+  selectedDocumentId = null,
   onDocumentAction,
 }) => {
   const [sortBy, setSortBy] = useState("date");
@@ -242,102 +243,130 @@ const DocumentList = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredAndSortedDocuments.map((document) => (
-                <tr key={document.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 bg-red-100 rounded flex items-center justify-center">
-                        <FileText size={20} className="text-red-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium text-gray-900 truncate">
-                          {document.title}
-                        </h4>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-gray-500">
-                            {document.type} / {document.category}
-                          </span>
-                          {document.size && (
-                            <span className="text-xs text-gray-400">
-                              • {document.size}
+              {filteredAndSortedDocuments.map((document) => {
+                const isSelected = selectedDocumentId === document.id;
+                return (
+                  <tr
+                    key={document.id}
+                    onClick={() => handleDocumentAction("select", document)}
+                    className={`cursor-pointer transition-colors ${
+                      isSelected
+                        ? "bg-primary-50/80 hover:bg-primary-100/70 border-l-4 border-primary-500"
+                        : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 bg-red-100 rounded flex items-center justify-center flex-shrink-0">
+                          <FileText size={20} className="text-red-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-gray-900 truncate">
+                              {document.title}
+                            </h4>
+                            {isSelected && (
+                              <Badge variant="success" size="sm">
+                                Selected
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-gray-500">
+                              {document.type} / {document.category}
                             </span>
+                            {document.size && (
+                              <span className="text-xs text-gray-400">
+                                • {document.size}
+                              </span>
+                            )}
+                          </div>
+                          {document.description && (
+                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                              {document.description}
+                            </p>
                           )}
                         </div>
-                        {document.description && (
-                          <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                            {document.description}
-                          </p>
-                        )}
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDate(document.created_at)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <Badge variant={getStatusBadgeVariant(document.status)}>
-                      {document.status}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {document.project || "-"}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDocumentAction("view", document)}
-                        className="p-1 hover:bg-gray-100"
-                      >
-                        <Eye size={16} />
-                      </Button>
-
-                      <div className="relative group">
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {formatDate(document.created_at)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <Badge variant={getStatusBadgeVariant(document.status)}>
+                        {document.status}
+                      </Badge>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {document.project || "-"}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDocumentAction("view", document);
+                          }}
                           className="p-1 hover:bg-gray-100"
+                          title="View document"
                         >
-                          <MoreHorizontal size={16} />
+                          <Eye size={16} />
                         </Button>
 
-                        <div className="absolute right-0 top-8 w-48 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
-                          <div className="py-1">
-                            <button
-                              onClick={() =>
-                                handleDocumentAction("download", document)
-                              }
-                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                            >
-                              <Download size={16} />
-                              Download
-                            </button>
-                            <button
-                              onClick={() =>
-                                handleDocumentAction("edit", document)
-                              }
-                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                            >
-                              <Edit size={16} />
-                              Edit
-                            </button>
-                            <button
-                              onClick={() =>
-                                handleDocumentAction("delete", document)
-                              }
-                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 size={16} />
-                              Delete
-                            </button>
+                        <div
+                          className="relative group"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="p-1 hover:bg-gray-100"
+                          >
+                            <MoreHorizontal size={16} />
+                          </Button>
+
+                          <div className="absolute right-0 top-8 w-48 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 text-left">
+                            <div className="py-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDocumentAction("download", document);
+                                }}
+                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <Download size={16} />
+                                Download
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDocumentAction("edit", document);
+                                }}
+                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <Edit size={16} />
+                                Edit
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDocumentAction("delete", document);
+                                }}
+                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 size={16} />
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -373,6 +402,7 @@ DocumentList.propTypes = {
     }),
   ),
   loading: PropTypes.bool,
+  selectedDocumentId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onDocumentAction: PropTypes.func,
 };
 

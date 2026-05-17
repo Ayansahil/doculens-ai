@@ -53,33 +53,29 @@ async function runPipeline() {
   // Clean up stage 2 chunk
   await supabase.from('document_chunks').delete().eq('id', chunk.id);
 
-  // Stage 4: Process full document
-  console.log('\n[Stage 4/4] Processing full document text through chunkAndStore...');
-  const sampleDocText = testDoc.extracted_text || `
-Executive Summary:
-DocuLens AI is an intelligent document analysis and RAG management platform.
-The company experienced 45% revenue growth in the fourth quarter of 2025.
-Operating expenses were reduced by 12% due to automated cloud infrastructure optimization.
-Net profit margin expanded to 28.5%, exceeding initial Wall Street projections.
-Future outlook remains positive with planned expansion into enterprise compliance and legal analytics markets.
-Customer satisfaction ratings reached 94% following the rollout of realtime semantic search.
-`;
-
-  await chunkAndStore(testDoc.id, sampleDocText);
-  const { data: allChunks, count } = await supabase
+  // Stage 4: Verify document chunks and query retrieval
+  console.log('\n[Stage 4/4] Verifying document chunks and query retrieval...');
+  let { data: allChunks } = await supabase
     .from('document_chunks')
     .select('id, content', { count: 'exact' })
     .eq('document_id', testDoc.id);
 
-  console.log(`✅ Stage 4 passed: Total chunks created & stored in Supabase: ${allChunks.length}`);
+  if (!allChunks || allChunks.length === 0) {
+    console.log('No chunks present; indexing document text...');
+    await chunkAndStore(testDoc.id, testDoc.extracted_text);
+    const res = await supabase.from('document_chunks').select('id, content').eq('document_id', testDoc.id);
+    allChunks = res.data || [];
+  }
 
-  // Test retrieval on full document
-  const testQuery = 'What was the revenue growth and profit margin?';
-  console.log(`\nTesting RAG query retrieval on full document: "${testQuery}"`);
-  const fullDocMatches = await getRelevantChunks(testDoc.id, testQuery, 2);
+  console.log(`✅ Stage 4 passed: Total chunks verified in Supabase: ${allChunks.length}`);
+
+  // Test retrieval on document
+  const testQuery = 'technical skills and projects';
+  console.log(`\nTesting RAG query retrieval on document: "${testQuery}"`);
+  const fullDocMatches = await getRelevantChunks(testDoc.id, testQuery, 2, 0.0);
   console.log(`Retrieved ${fullDocMatches.length} chunks:`);
   fullDocMatches.forEach((m, idx) => {
-    console.log(`  [Match ${idx + 1}] (Score: ${Number(m.similarity).toFixed(4)}): ${m.content.trim()}`);
+    console.log(`  [Match ${idx + 1}] (Score: ${Number(m.similarity).toFixed(4)}): ${m.content.slice(0, 80).replace(/\n/g, ' ')}...`);
   });
 
   console.log('\n========================================================');

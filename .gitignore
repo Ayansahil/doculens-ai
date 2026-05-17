@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 .env
+backend/uploads/
+backend/test_chat_openrouter.mjs
+backend/test_issues_verification.mjs
+backend/test_real_doc_e2e.mjs
+
 
 # Editor directories and files
 .vscode/*

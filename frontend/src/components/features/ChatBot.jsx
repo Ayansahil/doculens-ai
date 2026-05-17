@@ -17,6 +17,7 @@ import { api } from "../../services/api";
 
 const ChatBot = ({
   documentId = null,
+  selectedDocument = null,
   summary = null,
   summaryLoading = false,
   className = "",
@@ -43,22 +44,51 @@ const ChatBot = ({
   ];
 
   /* ===============================
-     INIT MESSAGE
+     INIT MESSAGE & HISTORY SYNC
   ================================ */
   useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([
-        {
-          id: 1,
-          type: "bot",
-          content: documentId
-            ? "I'm ready to help you analyze this document. What would you like to know?"
-            : "Hello! Upload a document and I'll help you analyze it.",
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-    }
-  }, [documentId, messages.length]);
+    let isMounted = true;
+
+    const syncMessages = async () => {
+      if (documentId) {
+        try {
+          const res = await api.getChatHistory(documentId);
+          if (!isMounted) return;
+          if (res.data?.history && res.data.history.length > 0) {
+            const loaded = res.data.history.map((h) => ({
+              id: h.id,
+              type: h.role === "user" ? "user" : "bot",
+              content: h.content,
+              timestamp: h.timestamp,
+            }));
+            setMessages(loaded);
+            return;
+          }
+        } catch (err) {
+          console.warn("Could not fetch chat history:", err);
+        }
+      }
+
+      if (isMounted) {
+        setMessages([
+          {
+            id: "init",
+            type: "bot",
+            content: documentId
+              ? `I'm ready to help you analyze ${selectedDocument?.title ? `"${selectedDocument.title}"` : "this document"}. What would you like to know?`
+              : "Please select a document from the list to start asking questions.",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+    };
+
+    syncMessages();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [documentId, selectedDocument?.title]);
 
   /* ===============================
      SCROLL CHAT
@@ -111,6 +141,29 @@ const ChatBot = ({
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
 
+    // If no document is selected, show a clear UI message asking the user to select one
+    if (!documentId) {
+      const selectMsg = "Please select a document from the list before asking questions.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          type: "user",
+          content: inputMessage.trim(),
+          timestamp: new Date().toISOString(),
+        },
+        {
+          id: Date.now() + 1,
+          type: "bot",
+          content: `⚠️ ${selectMsg}`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      setInputMessage("");
+      addNotification({ type: "warning", message: selectMsg });
+      return;
+    }
+
     const userMessage = {
       id: Date.now(),
       type: "user",
@@ -130,23 +183,47 @@ const ChatBot = ({
         throw new Error(data.message || "Failed to get response");
       }
 
+      // Safely extract bot content from any expected response shape
+      const botContent =
+        data.botMessage?.content ||
+        data.response?.content ||
+        data.message ||
+        data.content ||
+        "I could not generate a response.";
+
+      const botId = data.botMessage?.id || `bot-${Date.now()}`;
+      const botTimestamp = data.botMessage?.timestamp || new Date().toISOString();
+
       setMessages((prev) => [
         ...prev,
         {
-          id: data.botMessage.id,
+          id: botId,
           type: "bot",
-          content: data.botMessage.content,
-          timestamp: data.botMessage.timestamp,
+          content: botContent,
+          timestamp: botTimestamp,
         },
       ]);
     } catch (error) {
-      const errorMsg = error.response?.data?.message || error.message || "Failed to process chat";
+      let errorMsg =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        "Failed to process chat";
+
+      if (
+        error.response?.status === 429 ||
+        /429|quota|rate limit|free-models-per-day/i.test(errorMsg)
+      ) {
+        errorMsg =
+          "The free AI request limit has been reached. Please try again after the quota resets.";
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now() + 1,
           type: "bot",
-          content: `❌ ${errorMsg}`,
+          content: `⚠️ ${errorMsg}`,
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -172,7 +249,7 @@ const ChatBot = ({
      UI
   ================================ */
   return (
-    <Card className={`h-full flex flex-col ${className}`}>
+    <Card className={`h-full flex flex-col ${className}`} padding="none">
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
         <button
@@ -198,9 +275,13 @@ const ChatBot = ({
           <div className="flex items-center gap-2">
             <MessageSquare size={16} />
             Chatbot
-            {documentId && (
+            {documentId ? (
               <Badge variant="success" size="sm" className="ml-1 scale-75 origin-left">
                 Context ON
+              </Badge>
+            ) : (
+              <Badge variant="warning" size="sm" className="ml-1 scale-75 origin-left">
+                No Document
               </Badge>
             )}
           </div>
@@ -208,7 +289,7 @@ const ChatBot = ({
       </div>
 
       {/* CONTENT */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {activeTab === "structured" ? (
           <div className="p-4 h-full overflow-y-auto space-y-6">
             {structuredData ? (
@@ -262,9 +343,30 @@ const ChatBot = ({
             )}
           </div>
         ) : (
-          <>
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* DOCUMENT CONTEXT HEADER BANNER */}
+            {!documentId ? (
+              <div className="bg-amber-50 border-b border-amber-200 px-3 py-2 text-xs text-amber-800 flex items-center gap-1.5 flex-shrink-0">
+                <FileText size={14} className="text-amber-600 flex-shrink-0" />
+                <span>No document selected. Please select a document from the list to ask questions about it.</span>
+              </div>
+            ) : (
+              <div className="bg-blue-50 border-b border-blue-200 px-3 py-1.5 text-xs text-blue-800 flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-1.5 truncate">
+                  <FileText size={14} className="text-blue-600 flex-shrink-0" />
+                  <span className="font-medium text-gray-700">Document:</span>
+                  <span className="truncate font-semibold text-blue-900">
+                    {selectedDocument?.title || documentId}
+                  </span>
+                </div>
+                <Badge variant="success" size="sm" className="scale-75 origin-right">
+                  Active
+                </Badge>
+              </div>
+            )}
+
             {/* CHAT */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
               {messages.map((m) => (
                 <div
                   key={m.id}
@@ -272,9 +374,9 @@ const ChatBot = ({
                     }`}
                 >
                   <div
-                    className={`max-w-[75%] p-3 rounded-lg ${m.type === "user"
+                    className={`max-w-[85%] p-3 rounded-lg text-sm whitespace-pre-wrap ${m.type === "user"
                       ? "bg-primary-500 text-white"
-                      : "bg-gray-100"
+                      : "bg-gray-100 text-gray-800 border border-gray-200"
                       }`}
                   >
                     {m.content}
@@ -283,21 +385,27 @@ const ChatBot = ({
               ))}
 
               {isTyping && (
-                <div className="text-sm text-gray-500">Typing...</div>
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 text-gray-600 text-xs px-3 py-2 rounded-lg border border-gray-200 animate-pulse flex items-center gap-1.5">
+                    <Bot size={14} className="text-primary-500" />
+                    DocuLens AI is thinking...
+                  </div>
+                </div>
               )}
               <div ref={messagesEndRef} />
             </div>
 
             {/* SUGGESTIONS */}
             {messages.length <= 1 && (
-              <div className="p-3 border-t bg-gray-50">
-                <div className="flex flex-wrap gap-2">
-                  {suggestedPrompts.map((p, i) => (
+              <div className="p-2.5 border-t bg-gray-50">
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestedPrompts.slice(0, 4).map((p, i) => (
                     <Button
                       key={i}
                       size="sm"
                       variant="outline"
                       onClick={() => handleSuggestedPrompt(p)}
+                      className="text-xs py-1"
                     >
                       <Sparkles size={12} className="mr-1" />
                       {p}
@@ -308,20 +416,25 @@ const ChatBot = ({
             )}
 
             {/* INPUT */}
-            <div className="p-4 border-t">
+            <div className="p-3 border-t bg-white">
               <div className="flex gap-2">
                 <Input
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="Ask about this document..."
+                  placeholder={
+                    documentId
+                      ? "Ask about this document..."
+                      : "Please select a document from the list first..."
+                  }
+                  disabled={isTyping}
                 />
-                <Button onClick={handleSendMessage}>
+                <Button onClick={handleSendMessage} disabled={isTyping || !inputMessage.trim()}>
                   <Send size={16} />
                 </Button>
               </div>
             </div>
-          </>
+          </div>
         )}
       </div>
     </Card>
@@ -332,6 +445,10 @@ export default ChatBot;
 
 ChatBot.propTypes = {
   documentId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  selectedDocument: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    title: PropTypes.string,
+  }),
   summary: PropTypes.string,
   summaryLoading: PropTypes.bool,
   className: PropTypes.string,
