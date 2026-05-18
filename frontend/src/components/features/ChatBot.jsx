@@ -15,6 +15,8 @@ import Badge from "../ui/Badge";
 import { useApp } from "../../context/AppContext";
 import { api } from "../../services/api";
 
+const isUserMessage = (m) => m?.role === "user" || m?.type === "user";
+
 const ChatBot = ({
   documentId = null,
   selectedDocument = null,
@@ -55,12 +57,23 @@ const ChatBot = ({
           const res = await api.getChatHistory(documentId);
           if (!isMounted) return;
           if (res.data?.history && res.data.history.length > 0) {
-            const loaded = res.data.history.map((h) => ({
-              id: h.id,
-              type: h.role === "user" ? "user" : "bot",
-              content: h.content,
-              timestamp: h.timestamp,
-            }));
+            const seenIds = new Set();
+            const loaded = [];
+            for (const h of res.data.history) {
+              if (!h) continue;
+              const id = h.id || `hist-${seenIds.size}-${Date.now()}`;
+              if (seenIds.has(id)) continue;
+              seenIds.add(id);
+
+              const isUser = isUserMessage(h);
+              loaded.push({
+                id,
+                role: isUser ? "user" : (h.role || "bot"),
+                type: isUser ? "user" : "bot",
+                content: h.content,
+                timestamp: h.timestamp || new Date().toISOString(),
+              });
+            }
             setMessages(loaded);
             return;
           }
@@ -73,6 +86,7 @@ const ChatBot = ({
         setMessages([
           {
             id: "init",
+            role: "bot",
             type: "bot",
             content: documentId
               ? `I'm ready to help you analyze ${selectedDocument?.title ? `"${selectedDocument.title}"` : "this document"}. What would you like to know?`
@@ -139,39 +153,44 @@ const ChatBot = ({
      SEND CHAT MESSAGE
   ================================ */
   const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
+    if (isTyping || !inputMessage.trim()) return;
 
     // If no document is selected, show a clear UI message asking the user to select one
     if (!documentId) {
       const selectMsg = "Please select a document from the list before asking questions.";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          type: "user",
-          content: inputMessage.trim(),
-          timestamp: new Date().toISOString(),
-        },
-        {
-          id: Date.now() + 1,
-          type: "bot",
-          content: `⚠️ ${selectMsg}`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+      const now = Date.now();
+      const userMsg = {
+        id: `user-${now}`,
+        role: "user",
+        type: "user",
+        content: inputMessage.trim(),
+        timestamp: new Date().toISOString(),
+      };
+      const botMsg = {
+        id: `bot-${now + 1}`,
+        role: "bot",
+        type: "bot",
+        content: `⚠️ ${selectMsg}`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, userMsg, botMsg]);
       setInputMessage("");
       addNotification({ type: "warning", message: selectMsg });
       return;
     }
 
     const userMessage = {
-      id: Date.now(),
+      id: `user-${Date.now()}`,
+      role: "user",
       type: "user",
       content: inputMessage.trim(),
       timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === userMessage.id)) return prev;
+      return [...prev, userMessage];
+    });
     setInputMessage("");
     setIsTyping(true);
 
@@ -193,16 +212,20 @@ const ChatBot = ({
 
       const botId = data.botMessage?.id || `bot-${Date.now()}`;
       const botTimestamp = data.botMessage?.timestamp || new Date().toISOString();
+      const botRole = data.botMessage?.role === "assistant" ? "assistant" : "bot";
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: botId,
-          type: "bot",
-          content: botContent,
-          timestamp: botTimestamp,
-        },
-      ]);
+      const botMessage = {
+        id: botId,
+        role: botRole,
+        type: "bot",
+        content: botContent,
+        timestamp: botTimestamp,
+      };
+
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === botId)) return prev;
+        return [...prev, botMessage];
+      });
     } catch (error) {
       let errorMsg =
         error.response?.data?.message ||
@@ -218,10 +241,12 @@ const ChatBot = ({
           "The free AI request limit has been reached. Please try again after the quota resets.";
       }
 
+      const errorBotId = `bot-err-${Date.now()}`;
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now() + 1,
+          id: errorBotId,
+          role: "bot",
           type: "bot",
           content: `⚠️ ${errorMsg}`,
           timestamp: new Date().toISOString(),
@@ -367,27 +392,44 @@ const ChatBot = ({
 
             {/* CHAT */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`flex ${m.type === "user" ? "justify-end" : "justify-start"
-                    }`}
-                >
+              {messages.map((m) => {
+                const isUser = isUserMessage(m);
+                return (
                   <div
-                    className={`max-w-[85%] p-3 rounded-lg text-sm whitespace-pre-wrap ${m.type === "user"
-                      ? "bg-primary-500 text-white"
-                      : "bg-gray-100 text-gray-800 border border-gray-200"
-                      }`}
+                    key={m.id}
+                    className={`flex items-start gap-2 ${
+                      isUser ? "justify-end" : "justify-start"
+                    }`}
                   >
-                    {m.content}
+                    {!isUser && (
+                      <div className="flex-shrink-0 h-7 w-7 rounded-full bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center mt-0.5">
+                        <Bot size={15} />
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[85%] p-3 rounded-lg text-sm whitespace-pre-wrap shadow-xs ${
+                        isUser
+                          ? "bg-blue-500 text-white"
+                          : "bg-gray-100 text-gray-800 border border-gray-200"
+                      }`}
+                    >
+                      {m.content}
+                    </div>
+                    {isUser && (
+                      <div className="flex-shrink-0 h-7 w-7 rounded-full bg-blue-500 text-white flex items-center justify-center mt-0.5">
+                        <User size={14} />
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {isTyping && (
-                <div className="flex justify-start">
+                <div className="flex justify-start items-center gap-2">
+                  <div className="flex-shrink-0 h-7 w-7 rounded-full bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center">
+                    <Bot size={15} />
+                  </div>
                   <div className="bg-gray-100 text-gray-600 text-xs px-3 py-2 rounded-lg border border-gray-200 animate-pulse flex items-center gap-1.5">
-                    <Bot size={14} className="text-primary-500" />
                     DocuLens AI is thinking...
                   </div>
                 </div>

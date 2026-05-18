@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Upload, Bell, Menu, User } from 'lucide-react';
+import { Upload, Bell, Menu, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../ui/Button'; 
 import SearchBar from '../features/SearchBar';
 import { useApp } from '../../context/AppContext';
 
 const Header = () => {
-  const { searchQuery, setSearchQuery, toggleSidebar, user, notifications } = useApp();
+  const { toggleSidebar, user, notifications } = useApp();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const navigate = useNavigate();
@@ -36,44 +36,37 @@ const Header = () => {
   const unreadNotifications = notifications.filter(n => !n.read).length;
 
   return (
-    <header className="bg-white border-b border-gray-200 px-4 py-3">
-      <div className="flex items-center justify-between">
-        {/* Left side - Menu button */}
-        <div className="flex items-center gap-4 flex-1">
+    <header className="bg-white border-b border-gray-200 px-4 py-2.5 sm:px-6 flex-shrink-0">
+      <div className="flex items-center justify-between gap-3 sm:gap-6 w-full">
+        {/* Left side - Menu button for mobile/tablet */}
+        <div className="flex items-center lg:hidden flex-shrink-0">
           <Button
             variant="ghost"
             size="sm"
             onClick={toggleSidebar}
-            className="lg:hidden p-2"
+            className="p-2 text-gray-600 hover:text-gray-900"
+            aria-label="Toggle navigation menu"
           >
             <Menu size={20} />
           </Button>
         </div>
 
         {/* Center - Search */}
-        <div className="flex-1 flex justify-center">
-            <SearchBar placeholder="Search all documents..." />
+        <div className="flex-1 max-w-2xl min-w-0">
+          <SearchBar placeholder="Search all documents..." />
         </div>
 
         {/* Right side - Actions and Profile */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           <Button
             variant="primary"
             size="md"
-            className="hidden sm:inline-flex"
+            className="p-2 sm:px-4 sm:py-2"
             icon={<Upload size={16} />}
             onClick={handleUploadClick}
+            aria-label="Upload document"
           >
-            Upload Document
-          </Button>
-          
-          <Button
-            variant="primary"
-            size="sm"
-            className="sm:hidden p-2"
-            onClick={handleUploadClick}
-          >
-            <Upload size={16} />
+            <span className="hidden sm:inline">Upload</span>
           </Button>
 
           {/* Notifications */}
@@ -82,11 +75,12 @@ const Header = () => {
               variant="ghost"
               size="sm"
               onClick={() => setShowNotifications(!showNotifications)}
-              className="p-2 relative"
+              className="p-2 relative text-gray-600 hover:text-gray-900"
+              aria-label="Notifications"
             >
               <Bell size={20} />
               {unreadNotifications > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-semibold">
                   {unreadNotifications}
                 </span>
               )}
@@ -126,12 +120,13 @@ const Header = () => {
               variant="ghost"
               size="sm"
               onClick={() => setShowProfile(!showProfile)}
-              className="p-2 flex items-center gap-2"
+              className="p-1 sm:p-2 flex items-center gap-2"
+              aria-label="User profile"
             >
-              <div className="h-8 w-8 bg-primary-500 rounded-full flex items-center justify-center text-gray-700 text-sm font-semibold">
+              <div className="h-8 w-8 bg-primary-500 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
                 {user?.name?.charAt(0).toUpperCase() || <User size={16} />}
               </div>
-              <span className="hidden md:inline-block font-medium text-gray-700">
+              <span className="hidden md:inline-block font-medium text-gray-700 truncate max-w-[120px]">
                 {user?.name || 'User'}
               </span>
             </Button>

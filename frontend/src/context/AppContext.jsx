@@ -6,7 +6,7 @@ const AppContext = createContext();
 
 const initialState = {
   theme: 'light',
-  sidebarCollapsed: false,
+  sidebarCollapsed: typeof window !== 'undefined' ? window.innerWidth < 1024 : false,
   notifications: [],
   searchQuery: '',
   activeDocument: null,

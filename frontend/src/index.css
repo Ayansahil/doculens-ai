@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+@theme {
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-sidebar: #1e293b;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-background: #f8fafc;
+}
+
 @layer base {
   body {
     background-color: var(--background, #fff);
@@ -49,13 +62,6 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
-}
-
-/* Force sidebar hidden below 1024px */
-@media (max-width: 1023px) {
-  aside {
-    transform: translateX(-100%) !important;
-  }
 }
 
 /* Clean Mobile Fix <768px */

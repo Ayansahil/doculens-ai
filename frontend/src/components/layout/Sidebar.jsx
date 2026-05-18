@@ -39,19 +39,25 @@ const Sidebar = () => {
 
   const storagePercentage = (storageUsed.used / storageUsed.total) * 100;
 
+  const handleNavClick = () => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024 && !sidebarCollapsed) {
+      toggleSidebar();
+    }
+  };
+
   return (
     <>
       {/* Mobile overlay */}
       {!sidebarCollapsed && (
         <div
-          className="fixed inset-0 bg-transparent z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 backdrop-blur-xs z-40 lg:hidden"
           onClick={toggleSidebar}
         />
       )}
 
       <aside
         className={`
-        fixed left-0 top-0 z-50 h-screen bg-[#1E3B5E] transition-all duration-300 ease-in-out
+        fixed left-0 top-0 z-50 h-screen bg-[#1E293B] flex-shrink-0 transition-all duration-300 ease-in-out
         lg:relative lg:z-auto
         ${sidebarCollapsed ? "-translate-x-full lg:translate-x-0 lg:w-20" : "translate-x-0 w-72"}
       `}
@@ -62,7 +68,7 @@ const Sidebar = () => {
             <div className="flex items-center justify-between">
               {!sidebarCollapsed && (
                 <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 bg-[#2A82EA] rounded-lg flex items-center justify-center">
+                  <div className="h-8 w-8 bg-primary-500 rounded-lg flex items-center justify-center">
                     <Brain size={20} className="text-white" />
                   </div>
                   <span className="text-white font-semibold text-lg">
@@ -73,7 +79,7 @@ const Sidebar = () => {
 
               {sidebarCollapsed && (
                 <div className="flex items-center justify-center w-full">
-                  <div className="h-8 w-8 bg-[#2A82EA] rounded-lg flex items-center justify-center">
+                  <div className="h-8 w-8 bg-primary-500 rounded-lg flex items-center justify-center">
                     <Brain size={20} className="text-white" />
                   </div>
                 </div>
@@ -113,9 +119,10 @@ const Sidebar = () => {
                   <NavLink
                     key={item.name}
                     to={item.href}
+                    onClick={handleNavClick}
                     className={({ isActive }) => `
                       flex items-center gap-3 rounded-lg px-4 py-3 text-base font-medium transition-all
-                      ${isActive ? "bg-[#2A82EA] text-white shadow-lg" : "text-gray-200 hover:bg-[#2A82EA] hover:text-white"}
+                      ${isActive ? "bg-primary-500 text-white shadow-md" : "text-gray-300 hover:bg-slate-700/60 hover:text-white"}
                       ${sidebarCollapsed ? "justify-center px-0" : ""}
                     `}
                     title={sidebarCollapsed ? item.name : undefined}
@@ -131,8 +138,11 @@ const Sidebar = () => {
             {!sidebarCollapsed && (
               <div className="mt-8 flex justify-center">
                 <button
-                  onClick={() => navigate("/upload")}
-                  className="h-14 w-14 bg-[#2A82EA] hover:bg-[#1E6FD9] rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-105"
+                  onClick={() => {
+                    handleNavClick();
+                    navigate("/upload");
+                  }}
+                  className="h-14 w-14 bg-primary-500 hover:bg-primary-600 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-105"
                   title="Upload Document"
                 >
                   <FolderUp size={24} className="text-white" />
@@ -144,9 +154,10 @@ const Sidebar = () => {
             <div className="mt-8 space-y-3">
               <NavLink
                 to="/help"
+                onClick={handleNavClick}
                 className={({ isActive }) => `
                   flex items-center gap-3 rounded-lg px-4 py-3 text-base font-medium transition-all
-                  ${isActive ? "bg-[#2A82EA] text-white shadow-lg" : "text-gray-200 hover:bg-[#2A82EA] hover:text-white"}
+                  ${isActive ? "bg-primary-500 text-white shadow-md" : "text-gray-300 hover:bg-slate-700/60 hover:text-white"}
                   ${sidebarCollapsed ? "justify-center px-0" : ""}
                 `}
                 title={sidebarCollapsed ? "Help & Support" : undefined}
@@ -157,9 +168,10 @@ const Sidebar = () => {
 
               <NavLink
                 to="/templates"
+                onClick={handleNavClick}
                 className={({ isActive }) => `
                   flex items-center gap-3 rounded-lg px-4 py-3 text-base font-medium transition-all
-                  ${isActive ? "bg-[#2A82EA] text-white shadow-lg" : "text-gray-200 hover:bg-[#2A82EA] hover:text-white"}
+                  ${isActive ? "bg-primary-500 text-white shadow-md" : "text-gray-300 hover:bg-slate-700/60 hover:text-white"}
                   ${sidebarCollapsed ? "justify-center px-0" : ""}
                 `}
                 title={sidebarCollapsed ? "Templates" : undefined}
@@ -180,7 +192,7 @@ const Sidebar = () => {
                 </div>
                 <div className="w-full bg-gray-700 rounded-full h-2 mb-1">
                   <div
-                    className="bg-[#2A82EA] h-2 rounded-full transition-all duration-300"
+                    className="bg-primary-500 h-2 rounded-full transition-all duration-300"
                     style={{ width: `${storagePercentage}%` }}
                   />
                 </div>
@@ -194,7 +206,7 @@ const Sidebar = () => {
             {sidebarCollapsed && (
               <div className="p-3 flex justify-center items-center border-t border-gray-700">
                 <div
-                  className="h-10 w-10 rounded-full border-2 border-[#2A82EA] flex items-center justify-center text-xs text-[#2A82EA] font-semibold"
+                  className="h-10 w-10 rounded-full border-2 border-primary-500 flex items-center justify-center text-xs text-primary-500 font-semibold"
                   title={`Storage: ${storageUsed.used}GB / ${storageUsed.total}GB (${Math.round(storagePercentage)}%)`}
                 >
                   {Math.round(storagePercentage)}%
@@ -206,9 +218,10 @@ const Sidebar = () => {
             <div className="border-t border-gray-700 p-3">
               <NavLink
                 to="/settings"
+                onClick={handleNavClick}
                 className={({ isActive }) => `
                   flex items-center gap-3 rounded-lg px-4 py-3 text-base font-medium transition-all
-                  ${isActive ? "bg-[#2A82EA] text-white shadow-lg" : "text-gray-200 hover:bg-[#2A82EA] hover:text-white"}
+                  ${isActive ? "bg-primary-500 text-white shadow-md" : "text-gray-300 hover:bg-slate-700/60 hover:text-white"}
                   ${sidebarCollapsed ? "justify-center px-0" : ""}
                 `}
                 title={sidebarCollapsed ? "Settings" : undefined}
