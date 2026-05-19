@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User, Bell, Shield, Database, Download, Trash2, Save } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -10,8 +10,8 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState('profile');
   const [settings, setSettings] = useState({
     profile: {
-      name: user?.name || 'John Doe',
-      email: user?.email || 'john.doe@example.com',
+      name: user?.name || '',
+      email: user?.email || '',
       company: 'Acme Corporation',
       role: 'Document Manager'
     },
@@ -33,6 +33,20 @@ const Settings = () => {
       compressionEnabled: true
     }
   });
+
+  // Sync profile fields when Supabase user loads
+  useEffect(() => {
+    if (user?.email) {
+      setSettings((prev) => ({
+        ...prev,
+        profile: {
+          ...prev.profile,
+          name: prev.profile.name || user.name || '',
+          email: user.email || prev.profile.email,
+        },
+      }));
+    }
+  }, [user?.email, user?.name]);
 
   const tabs = [
     { id: 'profile', name: 'Profile', icon: User },
@@ -82,6 +96,9 @@ const Settings = () => {
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Information</h3>
+              {user?.email && (
+                <p className="text-sm text-gray-600 mb-4">Signed in as <span className="font-medium text-gray-900">{user.email}</span></p>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Input
                   label="Full Name"

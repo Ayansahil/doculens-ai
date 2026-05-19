@@ -83,6 +83,12 @@ const extractTextFromFile = async (filePath, extension) => {
 };
 
 /* ================================
+   🔒 OWNERSHIP HELPER (allows legacy rows with NULL user_id)
+================================ */
+const isForbidden = (row, userId) =>
+  row?.user_id != null && row.user_id !== userId;
+
+/* ================================
    📄 GET ALL DOCUMENTS
 ================================ */
 export const getAllDocuments = async (req, res) => {
@@ -92,6 +98,7 @@ export const getAllDocuments = async (req, res) => {
     let dbQuery = supabase
       .from("documents")
       .select("*", { count: "exact" })
+      .or(`user_id.eq.${req.user.id},user_id.is.null`)
       .order("created_at", { ascending: false });
 
     if (status) dbQuery = dbQuery.eq("status", status);
@@ -143,6 +150,10 @@ export const getDocumentById = async (req, res) => {
         return res.status(404).json({ message: "Document not found" });
       }
       throw error;
+    }
+
+    if (isForbidden(data, req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: not your document" });
     }
 
     res.json(data);
@@ -208,6 +219,7 @@ export const uploadDocument = async (req, res) => {
       file_size: req.file.size,
       project: metadata.project || null,
       extracted_text: extractedText,
+      user_id: req.user.id,
     };
 
     console.log("\n💾 Saving to database...");
@@ -285,6 +297,23 @@ export const updateDocument = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const { data: existing, error: fetchError } = await supabase
+      .from("documents")
+      .select("id, user_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError) {
+      if (fetchError.code === "PGRST116") {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      throw fetchError;
+    }
+
+    if (isForbidden(existing, req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: not your document" });
+    }
+
     const { data, error } = await supabase
       .from("documents")
       .update(req.body)
@@ -309,6 +338,23 @@ export const updateDocument = async (req, res) => {
 export const deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("documents")
+      .select("id, user_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError) {
+      if (fetchError.code === "PGRST116") {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      throw fetchError;
+    }
+
+    if (isForbidden(existing, req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: not your document" });
+    }
 
     // Clean up associated chunks and chat history to prevent orphans
     await supabase.from("document_chunks").delete().eq("document_id", id);
@@ -336,12 +382,16 @@ export const downloadDocumentLogic = async (req, res) => {
 
     const { data, error } = await supabase
       .from("documents")
-      .select("file_url, title")
+      .select("file_url, title, user_id")
       .eq("id", id)
       .single();
 
     if (error || !data) {
       return res.status(404).json({ message: "Document not found" });
+    }
+
+    if (isForbidden(data, req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: not your document" });
     }
 
     const absolutePath = path.join(process.cwd(), data.file_url);
@@ -362,12 +412,16 @@ export const summarizeDocument = async (req, res) => {
     // 1️⃣ Fetch document
     const { data: document, error } = await supabase
       .from("documents")
-      .select("id, title, extracted_text")
+      .select("id, title, extracted_text, user_id")
       .eq("id", id)
       .single();
 
     if (error || !document) {
       return res.status(404).json({ message: "Document not found" });
+    }
+
+    if (isForbidden(document, req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: not your document" });
     }
 
     if (!document.extracted_text || document.extracted_text.length < 50) {

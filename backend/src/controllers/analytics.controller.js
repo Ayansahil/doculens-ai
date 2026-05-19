@@ -3,10 +3,12 @@ import { supabase } from '../config/db.js';
 export const getDashboardStats = async (req, res) => {
   try {
    
-    // 🟢 REAL DATABASE LOGIC (PRODUCTION)
+    // 🟢 REAL DATABASE LOGIC (PRODUCTION) — scoped to authenticated user
+    // Includes legacy rows with NULL user_id so existing docs keep working
     const { data: allDocuments, error: allError } = await supabase
       .from('documents')
-      .select('id, status, file_size, created_at, title, type, category, description');
+      .select('id, status, file_size, created_at, title, type, category, description, user_id')
+      .or(`user_id.eq.${req.user.id},user_id.is.null`);
 
     if (allError) throw allError;
 

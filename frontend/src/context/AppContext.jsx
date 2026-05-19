@@ -133,7 +133,11 @@ export const AppProvider = ({ children }) => {
 
   const contextValue = {
     ...state,
-    auth, // Spread `auth` only if it's an object, or nest it.
+    auth, // { user, session, login, register, logout, isAuthenticated, loading }
+    user: auth.user,
+    session: auth.session,
+    isAuthenticated: auth.isAuthenticated,
+    authLoading: auth.loading,
     dispatch,
     addNotification,
     removeNotification,

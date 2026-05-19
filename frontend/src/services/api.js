@@ -1,8 +1,9 @@
 import axios from "axios";
+import { supabase } from "../lib/supabaseClient";
 import { STORAGE_KEYS } from "../utils/constants";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 // Create axios instance
 const apiClient = axios.create({
@@ -13,10 +14,19 @@ const apiClient = axios.create({
   },
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token (Supabase session first, legacy fallback)
 apiClient.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+  async (config) => {
+    let token = null;
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data.session?.access_token || null;
+    } catch {
+      // ignore, fall back to legacy token
+    }
+    if (!token) {
+      token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    }
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -41,10 +51,10 @@ apiClient.interceptors.response.use(
 );
 
 export const api = {
-  // Authentication
-  login: (credentials) => apiClient.post("/auth/login", credentials),
-  register: (userData) => apiClient.post("/auth/register", userData),
-  logout: () => apiClient.post("/auth/logout"),
+  // Authentication (legacy backend endpoints removed — Supabase Auth is used directly)
+  login: () => Promise.reject(new Error('Use Supabase Auth via useAuth().login')),
+  register: () => Promise.reject(new Error('Use Supabase Auth via useAuth().register')),
+  logout: () => Promise.resolve({ data: { success: true } }),
 
   // Documents
   getDocuments: (params = {}) => apiClient.get("/documents", { params }),

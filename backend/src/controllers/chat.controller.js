@@ -24,11 +24,27 @@ export const sendChatMessage = async (req, res) => {
       });
     }
 
+    // 🔒 If chatting on a document, verify ownership
+    if (documentId) {
+      const { data: doc, error: docError } = await supabase
+        .from("documents")
+        .select("id, user_id")
+        .eq("id", documentId)
+        .single();
+      if (docError || !doc) {
+        return res.status(404).json({ success: false, message: "Document not found" });
+      }
+      if (doc.user_id != null && doc.user_id !== req.user.id) {
+        return res.status(403).json({ success: false, message: "Forbidden: not your document" });
+      }
+    }
+
     // 1️⃣ Save USER message
     const { data: userMsg, error: userError } = await supabase
       .from("chat_history")
       .insert({
         document_id: documentId || null,
+        user_id: req.user.id,
         role: "user",
         content: message,
       })
@@ -65,6 +81,7 @@ export const sendChatMessage = async (req, res) => {
           .from("chat_history")
           .insert({
             document_id: documentId,
+            user_id: req.user.id,
             role: "bot",
             content: diagnosticMessage,
           })
@@ -195,6 +212,7 @@ export const sendChatMessage = async (req, res) => {
       .from("chat_history")
       .insert({
         document_id: documentId || null,
+        user_id: req.user.id,
         role: "bot",
         content: botText,
       })
@@ -251,6 +269,7 @@ export const getChatHistory = async (req, res) => {
     let query = supabase
       .from("chat_history")
       .select("*")
+      .or(`user_id.eq.${req.user.id},user_id.is.null`)
       .order("timestamp", { ascending: true });
 
     if (documentId) {

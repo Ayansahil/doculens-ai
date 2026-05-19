@@ -9,8 +9,12 @@ import {
   summarizeDocument
 } from '../controllers/document.controller.js';
 import { upload } from '../middleware/upload.middleware.js';
+import { requireAuth } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
+
+// All document routes require authentication
+router.use(requireAuth);
 
 // ✅ UPLOAD ROUTE MUST BE ABOVE :id
 router.post('/upload', upload.single('file'), uploadDocument);

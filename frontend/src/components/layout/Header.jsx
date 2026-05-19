@@ -6,7 +6,7 @@ import SearchBar from '../features/SearchBar';
 import { useApp } from '../../context/AppContext';
 
 const Header = () => {
-  const { toggleSidebar, user, notifications } = useApp();
+  const { toggleSidebar, user, auth, notifications } = useApp();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const navigate = useNavigate();
@@ -28,6 +28,12 @@ const Header = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const handleSignOut = async () => {
+    setShowProfile(false);
+    await auth.logout();
+    navigate('/login', { replace: true });
+  };
 
   const handleUploadClick = () => {
     navigate('/upload');
@@ -155,11 +161,7 @@ const Header = () => {
                   <hr className="my-1" />
                   <button 
                     className="w-full text-left px-3 py-2 rounded hover:bg-gray-100 text-sm text-red-600"
-                    onClick={() => {
-                      setShowProfile(false);
-                      // Add logout logic here
-                      console.log('Sign out clicked');
-                    }}
+                    onClick={handleSignOut}
                   >
                     Sign Out
                   </button>
