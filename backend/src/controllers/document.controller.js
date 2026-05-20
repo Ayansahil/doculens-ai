@@ -83,10 +83,10 @@ const extractTextFromFile = async (filePath, extension) => {
 };
 
 /* ================================
-   🔒 OWNERSHIP HELPER (allows legacy rows with NULL user_id)
+   🔒 OWNERSHIP HELPER
 ================================ */
 const isForbidden = (row, userId) =>
-  row?.user_id != null && row.user_id !== userId;
+  !row || !row.user_id || row.user_id !== userId;
 
 /* ================================
    📄 GET ALL DOCUMENTS
@@ -98,7 +98,7 @@ export const getAllDocuments = async (req, res) => {
     let dbQuery = supabase
       .from("documents")
       .select("*", { count: "exact" })
-      .or(`user_id.eq.${req.user.id},user_id.is.null`)
+      .eq("user_id", req.user.id)
       .order("created_at", { ascending: false });
 
     if (status) dbQuery = dbQuery.eq("status", status);
@@ -314,10 +314,16 @@ export const updateDocument = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: not your document" });
     }
 
+    // Disallow tampering with document identity or ownership
+    const updatePayload = { ...req.body };
+    delete updatePayload.id;
+    delete updatePayload.user_id;
+
     const { data, error } = await supabase
       .from("documents")
-      .update(req.body)
+      .update(updatePayload)
       .eq("id", id)
+      .eq("user_id", req.user.id)
       .select()
       .single();
 
@@ -360,7 +366,11 @@ export const deleteDocument = async (req, res) => {
     await supabase.from("document_chunks").delete().eq("document_id", id);
     await supabase.from("chat_history").delete().eq("document_id", id);
 
-    const { error } = await supabase.from("documents").delete().eq("id", id);
+    const { error } = await supabase
+      .from("documents")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", req.user.id);
 
     if (error) throw error;
 

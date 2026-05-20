@@ -27,14 +27,25 @@ export const generateEmbedding = async (text, inputType = null) => {
   }
 
   try {
-    const response = await fetch(EMBEDDINGS_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
+    // ⏱️ Embedding calls are normally fast (2-5s); abort after 20s so the
+    // caller can fall back to keyword search instead of hanging the request.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+
+    let response;
+    try {
+      response = await fetch(EMBEDDINGS_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

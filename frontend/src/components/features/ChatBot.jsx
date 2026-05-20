@@ -239,6 +239,15 @@ const ChatBot = ({
       ) {
         errorMsg =
           "The free AI request limit has been reached. Please try again after the quota resets.";
+      } else if (
+        error.code === "ECONNABORTED" ||
+        /timeout of \d+ms/i.test(errorMsg)
+      ) {
+        errorMsg =
+          "The AI took longer than usual to respond. Please try again.";
+      } else if (!error.response) {
+        errorMsg =
+          "Cannot reach the server. Please check that the backend is running and try again.";
       }
 
       const errorBotId = `bot-err-${Date.now()}`;

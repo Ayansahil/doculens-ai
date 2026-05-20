@@ -34,7 +34,7 @@ export const sendChatMessage = async (req, res) => {
       if (docError || !doc) {
         return res.status(404).json({ success: false, message: "Document not found" });
       }
-      if (doc.user_id != null && doc.user_id !== req.user.id) {
+      if (!doc.user_id || doc.user_id !== req.user.id) {
         return res.status(403).json({ success: false, message: "Forbidden: not your document" });
       }
     }
@@ -56,9 +56,29 @@ export const sendChatMessage = async (req, res) => {
 
     // 1.5 Retrieve Context (RAG)
     let context = "";
+    let historyText = "";
     if (documentId) {
+      // 🔁 Conversation-aware retrieval: follow-up questions like "is it free?"
+      // have no meaning alone — include this user's recent turns so the right
+      // chunks are retrieved.
+      const { data: recentTurns } = await supabase
+        .from("chat_history")
+        .select("role, content")
+        .eq("document_id", documentId)
+        .eq("user_id", req.user.id)
+        .neq("content", message)
+        .order("timestamp", { ascending: false })
+        .limit(4);
+
+      historyText = (recentTurns || [])
+        .reverse()
+        .filter((m) => m.role === "user")
+        .map((m) => m.content)
+        .join(" | ");
+      const retrievalQuery = historyText ? `${historyText} ${message}` : message;
+
       console.log(`🔍 RAG: Fetching context for doc ${documentId}`);
-      const relevantChunks = await ragService.getRelevantChunks(documentId, message, 3, 0.0);
+      const relevantChunks = await ragService.getRelevantChunks(documentId, retrievalQuery, 3, 0.0);
       console.log(`📄 RAG: Found ${relevantChunks.length} chunks`);
 
       // If retrieval returns zero chunks, do not generate a generic LLM answer; return a clear diagnostic response instead
@@ -104,37 +124,62 @@ export const sendChatMessage = async (req, res) => {
 
     // 2️⃣ Call OpenRouter (with RAG context if document selected, or general assistant if no document)
     const systemPrompt = documentId
-      ? "You are DocuLens AI, an expert document assistant. Answer the user's question directly, clearly, and concisely using ONLY the provided document context below.\n\nRULES:\n1. Provide ONLY the final direct answer for the user.\n2. Do NOT include any internal thoughts, reasoning steps, or thinking process (do NOT write \"Here's a thinking process:\").\n3. If the answer cannot be found in the context, say 'Not found in document'."
+      ? "You are DocuLens AI, an expert document assistant. Answer the user's question directly, clearly, and concisely using ONLY the provided document context below.\n\nRULES:\n1. Provide ONLY the final direct answer for the user.\n2. Do NOT include any internal thoughts, reasoning steps, or thinking process (do NOT write \"Here's a thinking process:\").\n3. If the answer cannot be found in the context, reply starting with 'Not found in document' and then add one short sentence suggesting the user rephrase the question or ask about a different part of the document."
       : "You are DocuLens AI, a helpful AI assistant. Provide a direct, concise answer to the user's question without any internal reasoning or thinking process.";
 
     const userPrompt = documentId
-      ? `Selected Document ID: ${documentId}\n\nDocument Context:\n${context}\n\nUser Question: ${message}`
+      ? `Selected Document ID: ${documentId}\n${historyText ? `Recent questions in this chat: ${historyText}\n` : ""}Document Context:\n${context}\n\nUser Question: ${message}`
       : message;
 
-    const hfResponse = await fetch(HF_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.HF_API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "Doculens AI",
-      },
-      body: JSON.stringify({
-        model: process.env.HF_MODEL,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: userPrompt,
-          },
-        ],
-        temperature: documentId ? 0.1 : 0.3,
-        max_tokens: 2048,
-      }),
-    });
+    // ⏱️ Provider timeout: if OpenRouter doesn't answer in 50s, abort and
+    // return a friendly 504 (frontend waits up to 60s for chat).
+    const PROVIDER_TIMEOUT_MS = 50000;
+    const providerController = new AbortController();
+    const providerTimer = setTimeout(() => providerController.abort(), PROVIDER_TIMEOUT_MS);
+
+    let hfResponse;
+    try {
+      hfResponse = await fetch(HF_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.HF_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "http://localhost:3000",
+          "X-Title": "Doculens AI",
+        },
+        body: JSON.stringify({
+          model: process.env.HF_MODEL,
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt,
+            },
+            {
+              role: "user",
+              content: userPrompt,
+            },
+          ],
+          temperature: documentId ? 0.1 : 0.3,
+          max_tokens: 2048,
+        }),
+        signal: providerController.signal,
+      });
+    } catch (fetchErr) {
+      if (fetchErr.name === "AbortError" || providerController.signal.aborted) {
+        console.error("⏱️ OpenRouter timed out after", PROVIDER_TIMEOUT_MS, "ms");
+        const timeoutMessage =
+          "The AI provider is responding slowly right now. Please try again in a moment.";
+        return res.status(504).json({
+          success: false,
+          status: 504,
+          message: timeoutMessage,
+          error: timeoutMessage,
+        });
+      }
+      throw fetchErr;
+    } finally {
+      clearTimeout(providerTimer);
+    }
 
     const raw = await hfResponse.text();
     console.log("📡 OpenRouter RAW:", raw.substring(0, 500));
@@ -166,6 +211,39 @@ export const sendChatMessage = async (req, res) => {
           status: 429,
           message: quotaMessage,
           error: quotaMessage,
+        });
+      }
+
+      // Friendly, non-technical messages for other provider failures
+      // (never expose raw provider details or API keys)
+      if (hfResponse.status === 402) {
+        const creditMessage =
+          "The AI service has run out of free credits. Please try again later or contact support.";
+        return res.status(402).json({
+          success: false,
+          status: 402,
+          message: creditMessage,
+          error: creditMessage,
+        });
+      }
+      if (hfResponse.status === 404) {
+        const modelMessage =
+          "The configured AI model is currently unavailable. Please try again later.";
+        return res.status(503).json({
+          success: false,
+          status: 503,
+          message: modelMessage,
+          error: modelMessage,
+        });
+      }
+      if (hfResponse.status >= 500) {
+        const providerMessage =
+          "The AI provider had a temporary problem. Please try again in a moment.";
+        return res.status(502).json({
+          success: false,
+          status: 502,
+          message: providerMessage,
+          error: providerMessage,
         });
       }
 
@@ -266,10 +344,24 @@ export const getChatHistory = async (req, res) => {
       ? String(rawDocId).trim()
       : null;
 
+    if (documentId) {
+      const { data: doc, error: docError } = await supabase
+        .from("documents")
+        .select("id, user_id")
+        .eq("id", documentId)
+        .single();
+      if (docError || !doc) {
+        return res.status(404).json({ success: false, message: "Document not found", history: [], count: 0 });
+      }
+      if (!doc.user_id || doc.user_id !== req.user.id) {
+        return res.status(403).json({ success: false, message: "Forbidden: not your document", history: [], count: 0 });
+      }
+    }
+
     let query = supabase
       .from("chat_history")
       .select("*")
-      .or(`user_id.eq.${req.user.id},user_id.is.null`)
+      .eq("user_id", req.user.id)
       .order("timestamp", { ascending: true });
 
     if (documentId) {

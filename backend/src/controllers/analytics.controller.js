@@ -3,12 +3,11 @@ import { supabase } from '../config/db.js';
 export const getDashboardStats = async (req, res) => {
   try {
    
-    // 🟢 REAL DATABASE LOGIC (PRODUCTION) — scoped to authenticated user
-    // Includes legacy rows with NULL user_id so existing docs keep working
+    // Scoped strictly to authenticated user
     const { data: allDocuments, error: allError } = await supabase
       .from('documents')
       .select('id, status, file_size, created_at, title, type, category, description, user_id')
-      .or(`user_id.eq.${req.user.id},user_id.is.null`);
+      .eq('user_id', req.user.id);
 
     if (allError) throw allError;
 
@@ -32,7 +31,7 @@ export const getDashboardStats = async (req, res) => {
 
     const recentActivity = recentDocuments.map(doc => ({
       id: `activity-${doc.id}`,
-      user: 'System',
+      user: req.user?.email || 'User',
       type: 'upload',
       document: doc.title,
       status: doc.status,
@@ -67,12 +66,29 @@ export const getDashboardStats = async (req, res) => {
 };
 
 export const getStorageInfo = async (req, res) => {
-  return res.json({
-    used: 1.5,
-    total: 10,
-    percentage: 15,
-    available: 8.5
-  });
+  try {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('file_size')
+      .eq('user_id', req.user.id);
+
+    if (error) throw error;
+
+    const storageUsedBytes = (data || []).reduce((sum, d) => sum + (d.file_size || 0), 0);
+    const usedGB = +(storageUsedBytes / (1024 ** 3)).toFixed(2);
+    const totalGB = 10;
+    const percentage = Math.min(100, Math.round((usedGB / totalGB) * 100));
+    const available = +(totalGB - usedGB).toFixed(2);
+
+    return res.json({
+      used: usedGB,
+      total: totalGB,
+      percentage,
+      available,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to fetch storage info', error: error.message });
+  }
 };
 
 function getRelativeTime(dateString) {

@@ -71,9 +71,10 @@ export const api = {
   searchDocuments: (query) =>
     apiClient.get("/search", { params: { q: query } }),
 
-  // Chat
+  // Chat — longer timeout (60s): backend's provider timeout is 50s, so a
+  // friendly backend 504 message always arrives before this client aborts.
   sendChatMessage: (message, documentId = null) =>
-    apiClient.post("/chat", { message, documentId }),
+    apiClient.post("/chat", { message, documentId }, { timeout: 60000 }),
   getChatHistory: (documentId = null) =>
     apiClient.get("/chat/history", { params: { documentId } }),
 

@@ -16,6 +16,7 @@ backend/uploads/
 backend/test_chat_openrouter.mjs
 backend/test_issues_verification.mjs
 backend/test_real_doc_e2e.mjs
+backend/test_multi_user_ownership.mjs
 
 
 # Editor directories and files
