@@ -7,8 +7,9 @@ import { useApp } from "../context/AppContext";
 import { documentService } from "../services/documentService";
 import ConfirmModal from "../components/ui/ConfirmModal";
 import StatusModal from "../components/ui/StatusModal";
+
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
 const Documents = () => {
   // 📄 currently selected document (for view / chatbot)
@@ -23,10 +24,15 @@ const Documents = () => {
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  // 🧠 Stored, evidence-grounded risk analysis for the selected document
+  const [riskAnalysis, setRiskAnalysis] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState(null);
+
   const { documents, loading, error, fetchDocuments, updateFilters } =
     useDocuments();
 
-  const { searchQuery } = useApp();
+  const { searchQuery, addNotification } = useApp();
 
   // 🔍 Search filter (NO fetch loop)
   useEffect(() => {
@@ -35,79 +41,124 @@ const Documents = () => {
     }
   }, [searchQuery, updateFilters]);
 
+  const loadSummary = async (document) => {
+    setSummary(null);
+    setSummaryLoading(true);
+    try {
+      const res = await documentService.summarizeDocument(document.id);
+      setSummary(res.summary);
+    } catch (err) {
+      console.error("Summary failed", err);
+      setSummary(
+        err.response?.data?.message ||
+          "Summary is unavailable for this document."
+      );
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const loadAnalysis = async (documentId) => {
+    setAnalysisError(null);
+    setAnalysisLoading(true);
+    try {
+      const analysis = await documentService.getDocumentAnalysis(documentId);
+      setRiskAnalysis(analysis);
+    } catch (err) {
+      console.error("Risk analysis load failed", err);
+      setRiskAnalysis(null);
+      setAnalysisError(
+        err.response?.data?.message ||
+          err.message ||
+          "Failed to load the stored risk analysis."
+      );
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
+  const selectDocument = (document, { openFile = false } = {}) => {
+    setSelectedDocument(document);
+    if (openFile && document?.file_url) {
+      window.open(`${API_BASE_URL}${document.file_url}`, "_blank");
+    }
+    loadSummary(document);
+    loadAnalysis(document.id);
+  };
+
   // 🎯 Handle actions coming from DocumentList (select / view / delete / edit / download)
   const handleDocumentAction = async (action, document) => {
     // 🎯 Select document (for chatbot analysis & summary)
     if (action === "select") {
-      setSelectedDocument(document);
-      setSummary(null);
-      setSummaryLoading(true);
-
-      try {
-        const res = await documentService.summarizeDocument(document.id);
-        setSummary(res.summary);
-      } catch (err) {
-        console.error("Summary failed", err);
-        setSummary("Failed to generate summary.");
-      } finally {
-        setSummaryLoading(false);
-      }
-
+      selectDocument(document);
       return;
     }
 
     // 👁️ View document
     if (action === "view") {
-      if (document?.file_url) {
-        window.open(`${API_BASE_URL}${document.file_url}`, "_blank");
-      } else {
-        alert("File URL not found");
-      }
-      setSelectedDocument(document);
-      setSummary(null);
-      setSummaryLoading(true);
-
-      try {
-        const res = await documentService.summarizeDocument(document.id);
-        setSummary(res.summary);
-      } catch (err) {
-        console.error("Summary failed", err);
-        setSummary("Failed to generate summary.");
-      } finally {
-        setSummaryLoading(false);
-      }
-
+      selectDocument(document, { openFile: true });
       return;
     }
 
     // 🗑️ Delete document → open confirm modal
     if (action === "delete") {
       setDeleteTarget(document);
+      return;
     }
 
     // ✏️ Edit status
     if (action === "edit") {
       setEditTarget(document);
       setNewStatus(document.status); // current status prefill
+      return;
     }
 
-    // ⬇️ Download document
+    // ⬇️ Download document (authenticated blob request)
     if (action === "download") {
       try {
-        const fileUrl = `${import.meta.env.VITE_API_BASE_URL}/documents/${document.id}/download`;
-
-        // 🔽 force download (IMPORTANT FIX)
-        const link = window.document.createElement("a");
-        link.href = fileUrl;
-        link.download = document.title || "document";
-        window.document.body.appendChild(link);
-        link.click();
-        window.document.body.removeChild(link);
+        await documentService.downloadDocument(document.id, document.title);
       } catch (err) {
         console.error("Download failed:", err);
-        alert("Failed to download document");
+        addNotification({
+          type: "error",
+          message:
+            err.response?.data?.message || "Failed to download document",
+        });
       }
       return;
+    }
+
+    // 🧠 Run/retry the real risk analysis
+    if (action === "analyze") {
+      setAnalysisLoading(true);
+      setAnalysisError(null);
+      try {
+        const res = await documentService.analyzeDocumentRisk(document.id, true);
+        setSelectedDocument(document);
+        setRiskAnalysis(res.analysis);
+        addNotification({
+          type: "success",
+          message: res.cached
+            ? "Showing the stored risk analysis"
+            : "Risk analysis completed",
+        });
+        fetchDocuments();
+      } catch (err) {
+        console.error("Risk analysis failed:", err);
+        setRiskAnalysis(err.response?.data?.analysis || null);
+        setAnalysisError(
+          err.response?.data?.message ||
+            err.message ||
+            "Risk analysis failed. Please try again."
+        );
+        addNotification({
+          type: "error",
+          message:
+            err.response?.data?.message || "Risk analysis failed",
+        });
+      } finally {
+        setAnalysisLoading(false);
+      }
     }
   };
 
@@ -142,6 +193,13 @@ const Documents = () => {
             selectedDocument={selectedDocument}
             summary={summary}
             summaryLoading={summaryLoading}
+            riskAnalysis={riskAnalysis}
+            analysisLoading={analysisLoading}
+            analysisError={analysisError}
+            onAnalyzeRisk={() =>
+              selectedDocument &&
+              handleDocumentAction("analyze", selectedDocument)
+            }
           />
         </div>
       </div>
@@ -163,6 +221,8 @@ const Documents = () => {
             if (selectedDocument?.id === deleteTarget.id) {
               setSelectedDocument(null);
               setSummary(null);
+              setRiskAnalysis(null);
+              setAnalysisError(null);
             }
 
             // 🔄 refresh list after delete

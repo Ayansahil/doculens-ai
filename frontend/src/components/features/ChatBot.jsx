@@ -6,6 +6,8 @@ import {
   FileText,
   Sparkles,
   MessageSquare,
+  ShieldAlert,
+  RefreshCw,
 } from "lucide-react";
 import Card from "../ui/Card";
 import PropTypes from "prop-types";
@@ -14,23 +16,34 @@ import Input from "../ui/Input";
 import Badge from "../ui/Badge";
 import { useApp } from "../../context/AppContext";
 import { api } from "../../services/api";
+import {
+  getRiskBadge,
+  RISK_DISCLAIMER_TEXT,
+} from "../../utils/helpers";
 
 const isUserMessage = (m) => m?.role === "user" || m?.type === "user";
+
+const severityVariant = (severity) => {
+  if (severity === "high") return "high-risk";
+  if (severity === "medium") return "warning";
+  return "success";
+};
 
 const ChatBot = ({
   documentId = null,
   selectedDocument = null,
   summary = null,
   summaryLoading = false,
+  riskAnalysis = null,
+  analysisLoading = false,
+  analysisError = null,
+  onAnalyzeRisk = null,
   className = "",
 }) => {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [activeTab, setActiveTab] = useState("chatbot");
-
-  // 🔹 STRUCTURED DATA STATE
-  const [structuredData, setStructuredData] = useState(null);
 
   const messagesEndRef = useRef();
   const { addNotification } = useApp();
@@ -120,34 +133,6 @@ const ChatBot = ({
     const timer = setTimeout(scrollToBottom, 200);
     return () => clearTimeout(timer);
   }, [messages, isTyping]);
-
-  /* ===============================
-     BUILD STRUCTURED DATA FROM SUMMARY
-  ================================ */
-  useEffect(() => {
-    if (!documentId) return;
-
-    if (summary && !summaryLoading) {
-      setStructuredData({
-        documentType: "Uploaded Document",
-
-        keyMetrics: {
-          "Summary Length": `${summary.length} characters`,
-          Status: "Generated",
-        },
-
-        flaggedItems: [],
-
-        recommendations: [
-          "Review extracted summary",
-          "Ask questions in chatbot",
-          "Verify important clauses",
-        ],
-
-        summaryText: summary, // 👈 MAIN THING
-      });
-    }
-  }, [summary, summaryLoading, documentId]);
 
   /* ===============================
      SEND CHAT MESSAGE
@@ -326,54 +311,212 @@ const ChatBot = ({
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {activeTab === "structured" ? (
           <div className="p-4 h-full overflow-y-auto space-y-6">
-            {structuredData ? (
+            {!documentId ? (
+              <p className="text-gray-500 text-center">
+                Select a document to see its summary and risk analysis.
+              </p>
+            ) : (
               <>
                 {/* SUMMARY */}
                 <div>
                   <h3 className="font-semibold mb-2">Document Summary</h3>
                   {summaryLoading ? (
                     <p className="text-gray-500">Generating summary...</p>
-                  ) : (
+                  ) : summary ? (
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {structuredData.summaryText}
+                      {summary}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No summary available for this document.
                     </p>
                   )}
                 </div>
 
-                {/* METRICS */}
+                {/* RISK ANALYSIS */}
                 <div>
-                  <h3 className="font-semibold mb-2">Key Metrics</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(structuredData.keyMetrics).map(
-                      ([key, value]) => (
-                        <div
-                          key={key}
-                          className="p-3 bg-gray-50 rounded-lg"
-                        >
-                          <p className="text-xs text-gray-500">{key}</p>
-                          <p className="font-semibold">{value}</p>
-                        </div>
-                      )
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <h3 className="font-semibold">Risk Analysis</h3>
+                    {riskAnalysis && (
+                      <Badge
+                        variant={
+                          getRiskBadge({
+                            status: riskAnalysis.status,
+                            level: riskAnalysis.risk_level,
+                          }).variant
+                        }
+                        size="sm"
+                      >
+                        {
+                          getRiskBadge({
+                            status: riskAnalysis.status,
+                            level: riskAnalysis.risk_level,
+                          }).label
+                        }
+                      </Badge>
                     )}
                   </div>
-                </div>
 
-                {/* RECOMMENDATIONS */}
-                <div>
-                  <h3 className="font-semibold mb-2">Recommendations</h3>
-                  <ul className="space-y-1">
-                    {structuredData.recommendations.map((rec, i) => (
-                      <li key={i} className="text-sm text-gray-700">
-                        • {rec}
-                      </li>
-                    ))}
-                  </ul>
+                  {analysisLoading ? (
+                    <p className="text-sm text-blue-700">
+                      Loading stored risk analysis...
+                    </p>
+                  ) : analysisError ? (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                      <p className="text-sm text-red-700">{analysisError}</p>
+                      {onAnalyzeRisk && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={onAnalyzeRisk}
+                        >
+                          <RefreshCw size={14} />
+                          Retry analysis
+                        </Button>
+                      )}
+                    </div>
+                  ) : !riskAnalysis ? (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <p className="text-sm text-gray-600">
+                        No risk analysis has been run for this document yet.
+                      </p>
+                      {onAnalyzeRisk && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={onAnalyzeRisk}
+                        >
+                          <ShieldAlert size={14} />
+                          Run risk analysis
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 bg-gray-50 rounded-lg">
+                          <p className="text-xs text-gray-500">Risk level</p>
+                          <p className="font-semibold text-gray-900">
+                            {
+                              getRiskBadge({
+                                status: riskAnalysis.status,
+                                level: riskAnalysis.risk_level,
+                              }).label
+                            }
+                          </p>
+                        </div>
+                        <div className="p-3 bg-gray-50 rounded-lg">
+                          <p className="text-xs text-gray-500">Score</p>
+                          <p className="font-semibold text-gray-900">
+                            {typeof riskAnalysis.risk_score === "number"
+                              ? `${riskAnalysis.risk_score}/100`
+                              : "Not scored"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {riskAnalysis.summary && (
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                          {riskAnalysis.summary}
+                        </p>
+                      )}
+
+                      {riskAnalysis.status === "processing" ||
+                      riskAnalysis.status === "pending" ? (
+                        <p className="text-sm text-blue-700">
+                          Analysis in progress. This can take up to a minute.
+                        </p>
+                      ) : riskAnalysis.status === "failed" ? (
+                        <p className="text-sm text-red-700">
+                          {riskAnalysis.error ||
+                            "The analysis failed. The document was not marked as analysed."}
+                        </p>
+                      ) : riskAnalysis.status === "insufficient_evidence" ? (
+                        <p className="text-sm text-gray-600">
+                          Unable to determine a risk level from the available
+                          text.
+                        </p>
+                      ) : riskAnalysis.findings?.length ? (
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-semibold text-gray-900">
+                            Risk indicators
+                          </h4>
+                          {riskAnalysis.findings.map((finding, index) => (
+                            <div
+                              key={index}
+                              className="border-l-2 border-orange-300 pl-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge
+                                  variant={severityVariant(finding.severity)}
+                                  size="sm"
+                                >
+                                  {finding.category}
+                                </Badge>
+                                <span className="text-xs uppercase tracking-wide text-gray-500">
+                                  {finding.severity} severity
+                                </span>
+                              </div>
+                              <blockquote className="mt-2 rounded bg-gray-50 p-2 text-xs italic text-gray-700">
+                                “{finding.evidence}”
+                              </blockquote>
+                              <p className="mt-2 text-xs text-gray-700">
+                                <span className="font-medium">
+                                  AI interpretation:
+                                </span>{" "}
+                                {finding.explanation}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-600">
+                          No specific grounded risk indicators were found.
+                        </p>
+                      )}
+
+                      {riskAnalysis.findings?.some(
+                        (finding) => finding.recommendation
+                      ) && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-900 mb-1">
+                            Recommendations
+                          </h4>
+                          <ul className="space-y-1">
+                            {riskAnalysis.findings
+                              .filter((finding) => finding.recommendation)
+                              .map((finding, index) => (
+                                <li
+                                  key={index}
+                                  className="text-xs text-gray-700"
+                                >
+                                  • {finding.recommendation}
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {onAnalyzeRisk && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={onAnalyzeRisk}
+                        >
+                          <RefreshCw size={14} />
+                          Re-run analysis
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-500 mt-3">
+                    {RISK_DISCLAIMER_TEXT}
+                  </p>
                 </div>
               </>
-            ) : (
-              <p className="text-gray-500 text-center">
-                No structured data available
-              </p>
             )}
           </div>
         ) : (
@@ -502,5 +645,9 @@ ChatBot.propTypes = {
   }),
   summary: PropTypes.string,
   summaryLoading: PropTypes.bool,
+  riskAnalysis: PropTypes.object,
+  analysisLoading: PropTypes.bool,
+  analysisError: PropTypes.string,
+  onAnalyzeRisk: PropTypes.func,
   className: PropTypes.string,
 };

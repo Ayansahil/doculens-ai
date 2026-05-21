@@ -6,6 +6,7 @@ import { dirname } from 'path';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import * as ragService from "../services/rag.service.js";
+import * as riskService from "../services/risk.service.js";
 
 // For ES modules __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -117,12 +118,36 @@ export const getAllDocuments = async (req, res) => {
 
     if (error) throw error;
 
+    // Attach the stored risk summary (never run analysis from a list request)
+    const analyses = await riskService.getAnalysesForDocuments(
+      (data || []).map((doc) => doc.id),
+      req.user.id
+    );
+
+    const documents = (data || []).map((doc) => {
+      const analysis = analyses.map[doc.id];
+      return {
+        ...doc,
+        risk: analysis
+          ? {
+              status: analysis.status,
+              level: analysis.risk_level,
+              score: analysis.risk_score,
+              summary: analysis.summary,
+              error: analysis.error,
+              analyzedAt: analysis.analyzed_at,
+            }
+          : { status: analyses.available ? "not_analyzed" : "unavailable" },
+      };
+    });
+
     res.json({
-      documents: data || [],
+      documents,
       total: count || 0,
       page: Number(page),
       limit: Number(limit),
       totalPages: Math.ceil((count || 0) / limit),
+      analysisAvailable: analyses.available,
     });
   } catch (error) {
     res.status(500).json({
@@ -156,7 +181,25 @@ export const getDocumentById = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: not your document" });
     }
 
-    res.json(data);
+    // Attach stored analysis (if any) without triggering a new analysis run
+    let analysis = null;
+    let analysisAvailable = true;
+    try {
+      analysis = await riskService.getDocumentAnalysis(id, req.user.id);
+    } catch (analysisError) {
+      if (analysisError.code === "ANALYSIS_TABLE_MISSING") {
+        analysisAvailable = false;
+      } else {
+        console.error("Failed to load document analysis:", analysisError.message);
+      }
+    }
+
+    res.json({
+      ...data,
+      analysis,
+      analysisAvailable,
+      riskDisclaimer: riskService.RISK_DISCLAIMER,
+    });
   } catch (error) {
     res.status(500).json({
       message: "Failed to fetch document",
@@ -169,6 +212,7 @@ export const getDocumentById = async (req, res) => {
    ⬆️ UPLOAD + EXTRACT
 ================================ */
 export const uploadDocument = async (req, res) => {
+  let createdDocument = null;
   try {
     console.log("\n========================================");
     console.log("📤 NEW UPLOAD REQUEST");
@@ -241,6 +285,7 @@ export const uploadDocument = async (req, res) => {
 
     console.log("✅ Document saved to database!");
     console.log("📌 Document ID:", data.id);
+    createdDocument = data;
 
     // 🚀 ASYNC CHUNKING & EMBEDDINGS (RAG)
     if (extractedText) {
@@ -261,6 +306,16 @@ export const uploadDocument = async (req, res) => {
           data.status = "analysed";
         }
         console.log("✅ Document RAG processing succeeded and status marked as analysed");
+
+        // 🧠 Auto-run the real risk analysis once (fire-and-forget, does not
+        // block the upload response). Set AUTO_RISK_ANALYSIS=false to disable.
+        if (process.env.AUTO_RISK_ANALYSIS !== "false") {
+          riskService
+            .analyzeDocumentRisk(data.id, req.user.id)
+            .catch((riskError) => {
+              console.warn("⚠️ Auto risk analysis skipped:", riskError.message);
+            });
+        }
       } catch (ragError) {
         console.error("❌ RAG Processing failed:", ragError.message);
         // Mark document status as failed and report the error clearly
@@ -282,7 +337,14 @@ export const uploadDocument = async (req, res) => {
     console.error("Error message:", error.message);
     console.error("Error stack:", error.stack);
     console.error("========================================\n");
-    
+
+    // Clean up the uploaded file if the document was never persisted.
+    if (!createdDocument && req.file?.filename) {
+      fs.promises
+        .unlink(path.join(process.cwd(), "uploads", req.file.filename))
+        .catch(() => {});
+    }
+
     res.status(500).json({
       message: "Failed to upload document",
       error: error.message,
@@ -347,7 +409,7 @@ export const deleteDocument = async (req, res) => {
 
     const { data: existing, error: fetchError } = await supabase
       .from("documents")
-      .select("id, user_id")
+      .select("id, user_id, file_url")
       .eq("id", id)
       .single();
 
@@ -373,6 +435,19 @@ export const deleteDocument = async (req, res) => {
       .eq("user_id", req.user.id);
 
     if (error) throw error;
+
+    // Remove the original upload from disk (storage accounting is based on
+    // the documents table, so orphans must not be left behind).
+    if (existing.file_url) {
+      const fileName = path.basename(existing.file_url);
+      fs.promises
+        .unlink(path.join(process.cwd(), "uploads", fileName))
+        .catch((unlinkError) => {
+          if (unlinkError.code !== "ENOENT") {
+            console.warn("Could not remove uploaded file:", unlinkError.message);
+          }
+        });
+    }
 
     res.json({ message: "Document deleted successfully" });
   } catch (error) {
@@ -414,6 +489,88 @@ export const downloadDocumentLogic = async (req, res) => {
 /* ================================
    💡SUMMARIZE DOCUMENT
 ================================ */
+
+export const analyzeDocument = async (req, res) => {
+  try {
+    const force = req.body?.force === true || req.query.force === "true";
+
+    const { analysis, cached, warning } = await riskService.analyzeDocumentRisk(
+      req.params.id,
+      req.user.id,
+      { force }
+    );
+
+    res.json({
+      success: true,
+      cached: Boolean(cached),
+      analysis,
+      warning: warning || null,
+      disclaimer: riskService.RISK_DISCLAIMER,
+    });
+  } catch (error) {
+    const status =
+      error.status ||
+      (error.code === "ANALYSIS_TABLE_MISSING" ? 503 : 500);
+
+    res.status(status).json({
+      success: false,
+      message: error.message || "Risk analysis failed",
+      code: error.code || null,
+      analysis: error.analysis || null,
+      disclaimer: riskService.RISK_DISCLAIMER,
+    });
+  }
+};
+
+export const getDocumentAnalysis = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from("documents")
+      .select("id, user_id")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      throw error;
+    }
+
+    if (isForbidden(data, req.user.id)) {
+      return res.status(403).json({ message: "Forbidden: not your document" });
+    }
+
+    const analysis = await riskService.getDocumentAnalysis(id, req.user.id);
+
+    if (!analysis) {
+      return res.status(404).json({
+        success: false,
+        message: "No risk analysis has been run for this document yet.",
+        analysis: null,
+      });
+    }
+
+    res.json({
+      success: true,
+      analysis,
+      disclaimer: riskService.RISK_DISCLAIMER,
+    });
+  } catch (error) {
+    const status =
+      error.status ||
+      (error.code === "ANALYSIS_TABLE_MISSING" ? 503 : 500);
+
+    res.status(status).json({
+      success: false,
+      message: error.message || "Failed to load document analysis",
+      code: error.code || null,
+      analysis: null,
+    });
+  }
+};
 
 export const summarizeDocument = async (req, res) => {
   try {

@@ -16,14 +16,14 @@ export const DOCUMENT_CATEGORIES = {
   OTHER: 'Other'
 };
 
+// Values match the statuses actually stored by the upload pipeline.
 export const DOCUMENT_STATUSES = {
-  PENDING: 'Pending',
-  ANALYSED: 'Analysed',
-  HIGH_RISK: 'High Risk',
-  PENDING_OCR: 'Pending OCR',
-  PROCESSING: 'Processing',
-  COMPLETED: 'Completed',
-  ERROR: 'Error'
+  PENDING: 'pending',
+  ANALYSED: 'analysed',
+  HIGH_RISK: 'high-risk',
+  PENDING_OCR: 'pending-ocr',
+  PROCESSING: 'processing',
+  FAILED: 'failed'
 };
 
 export const STATUS_COLORS = {
@@ -32,8 +32,7 @@ export const STATUS_COLORS = {
   [DOCUMENT_STATUSES.HIGH_RISK]: 'bg-orange-100 text-orange-800',
   [DOCUMENT_STATUSES.PENDING_OCR]: 'bg-orange-100 text-orange-800',
   [DOCUMENT_STATUSES.PROCESSING]: 'bg-blue-100 text-blue-800',
-  [DOCUMENT_STATUSES.COMPLETED]: 'bg-green-100 text-green-800',
-  [DOCUMENT_STATUSES.ERROR]: 'bg-red-100 text-red-800'
+  [DOCUMENT_STATUSES.FAILED]: 'bg-red-100 text-red-800'
 };
 
 export const API_ENDPOINTS = {

@@ -6,7 +6,9 @@ import {
   updateDocument,
   deleteDocument,
   downloadDocumentLogic,
-  summarizeDocument
+  summarizeDocument,
+  analyzeDocument,
+  getDocumentAnalysis
 } from '../controllers/document.controller.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
@@ -27,6 +29,10 @@ router.get('/:id/download', downloadDocumentLogic);
 
 // ✅ SUMMARIZE DOCUMENT
 router.post("/:id/summarize", summarizeDocument);
+
+// ✅ RISK ANALYSIS (must be above /:id for GET)
+router.get('/:id/analysis', getDocumentAnalysis);
+router.post('/:id/analyze', analyzeDocument);
 
 // ✅ GET DOCUMENT BY ID (LAST AMONG GETs)
 router.get('/:id', getDocumentById);

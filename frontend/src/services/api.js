@@ -66,6 +66,20 @@ export const api = {
     }),
   updateDocument: (id, data) => apiClient.put(`/documents/${id}`, data),
   deleteDocument: (id) => apiClient.delete(`/documents/${id}`),
+  downloadDocument: (id) =>
+    apiClient.get(`/documents/${id}/download`, {
+      responseType: "blob",
+      timeout: 60000,
+    }),
+
+  // Risk analysis (LLM can take up to ~50s)
+  analyzeDocumentRisk: (id, force = false) =>
+    apiClient.post(
+      `/documents/${id}/analyze`,
+      { force },
+      { timeout: 80000 },
+    ),
+  getDocumentAnalysis: (id) => apiClient.get(`/documents/${id}/analysis`),
 
   // Search
   searchDocuments: (query) =>

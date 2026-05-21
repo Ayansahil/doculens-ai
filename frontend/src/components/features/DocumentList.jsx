@@ -9,13 +9,19 @@ import {
   ListFilter as Filter,
   Calendar,
   Tag,
+  ShieldAlert,
 } from "lucide-react";
 import PropTypes from "prop-types";
 import Card from "../ui/Card";
 import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
-import { formatDate } from "../../utils/helpers";
+import {
+  formatDate,
+  formatFileSize,
+  getRiskBadge,
+  getStatusBadgeVariant,
+} from "../../utils/helpers";
 import { DOCUMENT_STATUSES } from "../../utils/constants";
 
 const DocumentList = ({
@@ -43,9 +49,14 @@ const DocumentList = ({
       );
     }
 
-    // Apply status filter
+    // Apply status filter (normalized so legacy values like "Pending OCR" match)
     if (filterStatus !== "all") {
-      filtered = filtered.filter((doc) => doc.status === filterStatus);
+      filtered = filtered.filter(
+        (doc) =>
+          String(doc.status || "")
+            .toLowerCase()
+            .replace(/\s+/g, "-") === filterStatus,
+      );
     }
 
     // Apply type filter
@@ -109,20 +120,8 @@ const DocumentList = ({
     }
   };
 
-  const getStatusBadgeVariant = (status) => {
-    switch (status.toLowerCase().replace(" ", "-")) {
-      case "high-risk":
-        return "high-risk";
-      case "analysed":
-        return "analysed";
-      case "pending-ocr":
-        return "pending-ocr";
-      case "pending":
-        return "pending";
-      default:
-        return "default";
-    }
-  };
+  const formatStatusLabel = (status) =>
+    status.charAt(0).toUpperCase() + status.slice(1).replace(/-/g, " ");
 
   if (loading) {
     return (
@@ -165,7 +164,7 @@ const DocumentList = ({
               <option value="all">All Statuses</option>
               {Object.values(DOCUMENT_STATUSES).map((status) => (
                 <option key={status} value={status}>
-                  {status}
+                  {formatStatusLabel(status)}
                 </option>
               ))}
             </select>
@@ -235,6 +234,9 @@ const DocumentList = ({
                   </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Risk
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Project
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -245,6 +247,13 @@ const DocumentList = ({
             <tbody className="divide-y divide-gray-200">
               {filteredAndSortedDocuments.map((document) => {
                 const isSelected = selectedDocumentId === document.id;
+                const riskBadge = getRiskBadge(document.risk);
+                const analysisLabel =
+                  document.risk?.status === "not_analyzed" ||
+                  !document.risk?.status
+                    ? "Analyze risk"
+                    : "Re-run risk analysis";
+
                 return (
                   <tr
                     key={document.id}
@@ -275,9 +284,9 @@ const DocumentList = ({
                             <span className="text-xs text-gray-500">
                               {document.type} / {document.category}
                             </span>
-                            {document.size && (
+                            {document.file_size != null && (
                               <span className="text-xs text-gray-400">
-                                • {document.size}
+                                • {formatFileSize(document.file_size)}
                               </span>
                             )}
                           </div>
@@ -296,6 +305,21 @@ const DocumentList = ({
                       <Badge variant={getStatusBadgeVariant(document.status)}>
                         {document.status}
                       </Badge>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div
+                        className="flex flex-col items-start gap-1"
+                        title={document.risk?.summary || undefined}
+                      >
+                        <Badge variant={riskBadge.variant} size="sm">
+                          {riskBadge.label}
+                        </Badge>
+                        {typeof document.risk?.score === "number" && (
+                          <span className="text-xs text-gray-500">
+                            Score {document.risk.score}/100
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {document.project || "-"}
@@ -348,6 +372,16 @@ const DocumentList = ({
                               >
                                 <Edit size={16} />
                                 Edit
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDocumentAction("analyze", document);
+                                }}
+                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              >
+                                <ShieldAlert size={16} />
+                                {analysisLabel}
                               </button>
                               <button
                                 onClick={(e) => {
