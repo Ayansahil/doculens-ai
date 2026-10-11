@@ -232,12 +232,34 @@ export const uploadDocument = async (req, res) => {
 
     // 🚀 ASYNC CHUNKING & EMBEDDINGS (RAG)
     if (extractedText) {
-      console.log("🤖 Starting RAG processing in background...");
-      // We don't 'await' this to keep upload speed fast, 
-      // but for this implementation we'll await to ensure success for now
-      await ragService.chunkAndStore(data.id, extractedText).catch(e => {
-        console.error("❌ RAG Processing failed:", e);
-      });
+      console.log("🤖 Starting RAG processing...");
+      try {
+        await ragService.chunkAndStore(data.id, extractedText);
+        // Mark document as analysed on successful chunking & embedding storage
+        const { data: updatedDoc, error: updateError } = await supabase
+          .from("documents")
+          .update({ status: "analysed" })
+          .eq("id", data.id)
+          .select()
+          .single();
+
+        if (!updateError && updatedDoc) {
+          data.status = updatedDoc.status;
+        } else {
+          data.status = "analysed";
+        }
+        console.log("✅ Document RAG processing succeeded and status marked as analysed");
+      } catch (ragError) {
+        console.error("❌ RAG Processing failed:", ragError.message);
+        // Mark document status as failed and report the error clearly
+        await supabase
+          .from("documents")
+          .update({ status: "failed" })
+          .eq("id", data.id);
+
+        data.status = "failed";
+        data.rag_error = ragError.message;
+      }
     }
 
     console.log("========================================\n");
@@ -283,10 +305,14 @@ export const updateDocument = async (req, res) => {
 
 /* ================================
    🗑 DELETE DOCUMENT
-================================ */
+=============================== */
 export const deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Clean up associated chunks and chat history to prevent orphans
+    await supabase.from("document_chunks").delete().eq("document_id", id);
+    await supabase.from("chat_history").delete().eq("document_id", id);
 
     const { error } = await supabase.from("documents").delete().eq("id", id);
 

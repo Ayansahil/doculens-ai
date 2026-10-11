@@ -5,30 +5,62 @@ const EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
 
 /**
  * Generate embeddings for a given text using OpenRouter
+ * @param {string} text - Text to embed
+ * @param {string|null} inputType - Optional 'passage' or 'query' for asymmetric retrieval models
+ * @returns {Promise<number[]>} - Array of numeric embedding vector values
  */
-export const generateEmbedding = async (text) => {
+export const generateEmbedding = async (text, inputType = null) => {
+  const apiKey = process.env.HF_API_KEY;
+  if (!apiKey) {
+    throw new Error("Missing OpenRouter API key. Please check HF_API_KEY in .env");
+  }
+
+  const model = process.env.EMBEDDING_MODEL || "nvidia/nemotron-3-embed-1b:free";
+
+  const requestBody = {
+    model,
+    input: text.replace(/\n+/g, " ").trim(),
+  };
+
+  if (inputType) {
+    requestBody.input_type = inputType;
+  }
+
   try {
     const response = await fetch(EMBEDDINGS_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.HF_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: process.env.EMBEDDING_MODEL || "arcee-ai/trinity-mini:free",
-        input: text.replace(/\n+/g, " "),
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Embedding API failed: ${errorText}`);
+      let safeError = errorText;
+      try {
+        const errorJson = JSON.parse(errorText);
+        safeError = errorJson.error?.message || errorText;
+      } catch {
+        // keep text if not JSON
+      }
+      console.error(`❌ Embedding API failed (${response.status} ${response.statusText}): ${safeError}`);
+      throw new Error(`Embedding API failed with status ${response.status}: ${safeError}`);
     }
 
     const data = await response.json();
-    return data.data[0].embedding;
+    const embedding = data?.data?.[0]?.embedding;
+
+    if (!Array.isArray(embedding) || embedding.length === 0 || typeof embedding[0] !== "number") {
+      throw new Error(
+        `Invalid embedding response structure: expected non-empty array of numbers, received ${typeof embedding}`
+      );
+    }
+
+    return embedding;
   } catch (error) {
-    console.error("Error generating embedding:", error);
+    console.error("Error generating embedding:", error.message);
     throw error;
   }
 };
@@ -80,26 +112,47 @@ export const chunkAndStore = async (documentId, text) => {
     const chunks = chunkText(text);
     console.log(`📄 Created ${chunks.length} chunks`);
 
-    for (const content of chunks) {
-      const embedding = await generateEmbedding(content);
-      
-      const { error } = await supabase
-        .from("document_chunks")
-        .insert({
-          document_id: documentId,
-          content,
-          embedding
-        });
+    if (chunks.length === 0) {
+      console.warn(`⚠️ No text chunks extracted for document: ${documentId}`);
+      return;
+    }
 
-      if (error) {
-        console.error("Error storing chunk:", error);
-        throw error;
-      }
+    // 1️⃣ Delete existing chunks for this document to avoid duplicate chunks on retry
+    const { error: deleteError } = await supabase
+      .from("document_chunks")
+      .delete()
+      .eq("document_id", documentId);
+
+    if (deleteError) {
+      console.error(`Error cleaning up existing chunks for document ${documentId}:`, deleteError.message);
+      throw deleteError;
+    }
+
+    // 2️⃣ Generate embeddings for each chunk with input_type: 'passage'
+    const records = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const content = chunks[i];
+      const embedding = await generateEmbedding(content, "passage");
+      records.push({
+        document_id: documentId,
+        content,
+        embedding,
+      });
+    }
+
+    // 3️⃣ Batch insert all chunks into database
+    const { error: insertError } = await supabase
+      .from("document_chunks")
+      .insert(records);
+
+    if (insertError) {
+      console.error("Error storing chunk records:", insertError.message);
+      throw insertError;
     }
     
-    console.log("✅ All chunks and embeddings stored successfully");
+    console.log(`✅ All ${records.length} chunks and embeddings stored successfully`);
   } catch (error) {
-    console.error("Fatal error in chunkAndStore:", error);
+    console.error("Fatal error in chunkAndStore:", error.message);
     throw error;
   }
 };
@@ -109,7 +162,7 @@ export const chunkAndStore = async (documentId, text) => {
  */
 export const getRelevantChunks = async (documentId, query, topK = 3) => {
   try {
-    const queryEmbedding = await generateEmbedding(query);
+    const queryEmbedding = await generateEmbedding(query, "query");
 
     const { data, error } = await supabase.rpc("match_document_chunks", {
       query_embedding: queryEmbedding,
@@ -119,13 +172,13 @@ export const getRelevantChunks = async (documentId, query, topK = 3) => {
     });
 
     if (error) {
-      console.error("Error in vector search:", error);
+      console.error("Error in vector search:", error.message);
       throw error;
     }
 
     return data || [];
   } catch (error) {
-    console.error("Error retrieving relevant chunks:", error);
+    console.error("Error retrieving relevant chunks:", error.message);
     return [];
   }
 };

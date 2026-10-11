@@ -128,7 +128,7 @@ const Header = () => {
               onClick={() => setShowProfile(!showProfile)}
               className="p-2 flex items-center gap-2"
             >
-              <div className="h-8 w-8 bg-primary-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
+              <div className="h-8 w-8 bg-primary-500 rounded-full flex items-center justify-center text-gray-700 text-sm font-semibold">
                 {user?.name?.charAt(0).toUpperCase() || <User size={16} />}
               </div>
               <span className="hidden md:inline-block font-medium text-gray-700">
