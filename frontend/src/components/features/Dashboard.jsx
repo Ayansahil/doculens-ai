@@ -61,6 +61,7 @@ const Dashboard = () => {
   }
 
   const stats = dashboardStats || {};
+  const growth = stats.monthlyGrowth;
   const storagePercentage = stats.totalStorage
     ? (stats.storageUsed / stats.totalStorage) * 100
     : 0;
@@ -82,8 +83,29 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="flex items-center mt-4">
-            <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-            <span className="text-sm text-green-600">+12% from last month</span>
+            {growth?.lastMonth > 0 ? (
+              <>
+                <TrendingUp
+                  className={`h-4 w-4 mr-1 ${
+                    growth.percent >= 0 ? "text-green-500" : "text-red-500 rotate-180"
+                  }`}
+                />
+                <span
+                  className={`text-sm ${
+                    growth.percent >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {growth.percent >= 0 ? "+" : ""}
+                  {growth.percent}% from last month
+                </span>
+              </>
+            ) : (
+              <span className="text-sm text-gray-600">
+                {growth?.thisMonth > 0
+                  ? `${growth.thisMonth} upload${growth.thisMonth === 1 ? "" : "s"} this month`
+                  : "No uploads yet this month"}
+              </span>
+            )}
           </div>
         </Card>
 

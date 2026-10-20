@@ -8,8 +8,15 @@ export const formatFileSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// DB timestamps are stored in UTC without a timezone suffix — parse them as
+// UTC (append 'Z') so display never drifts by the local timezone offset.
+const parseDbDate = (dateString) => {
+  const s = String(dateString);
+  return new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : `${s}Z`);
+};
+
 export const formatDate = (dateString) => {
-  const date = new Date(dateString);
+  const date = parseDbDate(dateString);
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
@@ -18,7 +25,7 @@ export const formatDate = (dateString) => {
 };
 
 export const formatDateTime = (dateString) => {
-  const date = new Date(dateString);
+  const date = parseDbDate(dateString);
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
