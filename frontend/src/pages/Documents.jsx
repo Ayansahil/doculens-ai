@@ -177,8 +177,8 @@ const Documents = () => {
       <DocumentUpload onUploadComplete={fetchDocuments} />
 
       {/* 📄 Documents + 🤖 Chat */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-3">
+        <div className="min-w-0 xl:col-span-2">
           <DocumentList
             documents={documents}
             loading={loading}
@@ -187,7 +187,7 @@ const Documents = () => {
           />
         </div>
 
-        <div className="lg:col-span-1 max-h-[485px]">
+        <div className="min-w-0 h-[min(70vh,30rem)] min-h-[20rem] xl:col-span-1 xl:h-[30rem] xl:min-h-[30rem]">
           <ChatBot
             documentId={selectedDocument?.id || null}
             selectedDocument={selectedDocument}

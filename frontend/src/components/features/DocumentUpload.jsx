@@ -76,9 +76,9 @@ const DocumentUpload = ({ onUploadComplete }) => {
         onChange={handleSelect}
       />
 
-      <div className="border-dashed border-2 p-6 text-center">
+      <div className="border-dashed border-2 p-4 text-center sm:p-6">
         <Upload className="mx-auto mb-2 " />
-        <Button variant="outline" onClick={() => inputRef.current.click()}>
+        <Button variant="outline" className="min-h-11" onClick={() => inputRef.current.click()}>
           Choose Files
         </Button>
       </div>
@@ -86,16 +86,16 @@ const DocumentUpload = ({ onUploadComplete }) => {
       {files.length > 0 && (
         <div className="mt-4 space-y-2">
           {files.map(f => (
-            <div key={f.id} className="flex justify-between items-center border p-2 rounded">
-              <div>
-                <p className="text-sm">{f.name}</p>
+            <div key={f.id} className="flex min-w-0 items-start justify-between gap-3 border p-2 rounded">
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-sm [overflow-wrap:anywhere]">{f.name}</p>
                 <p className="text-xs text-gray-500">{formatFileSize(f.size)}</p>
               </div>
               {f.status === 'uploaded'
-                ? <CheckCircle className="text-green-500" />
+                ? <CheckCircle className="shrink-0 text-green-500" />
                 : f.status === 'error'
-                ? <AlertCircle className="text-red-500" />
-                : <File />}
+                ? <AlertCircle className="shrink-0 text-red-500" />
+                : <File className="shrink-0" />}
             </div>
           ))}
 

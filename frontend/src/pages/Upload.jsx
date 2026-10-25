@@ -26,7 +26,7 @@ const Upload = () => {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex min-h-full min-w-0 flex-col">
       {/* Page Header */}
       <div className="text-center flex-shrink-0">
         <div className="mx-auto h-12 w-12 bg-primary-100 rounded-full flex items-center justify-center mb-2">
@@ -41,10 +41,10 @@ const Upload = () => {
 
       {/* Success Message */}
       {showSuccess && (
-        <Card className="p-6 bg-green-50 border-green-200 my-4">
-          <div className="flex items-center gap-3">
+        <Card className="my-4 border-green-200 bg-green-50 p-4 sm:p-6">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
             <CheckCircle className="h-8 w-8 text-green-500 flex-shrink-0" />
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <h3 className="font-semibold text-green-900">
                 Upload Successful!
               </h3>
@@ -66,7 +66,7 @@ const Upload = () => {
       )}
 
       {/* Upload Interface */}
-      <div className="flex-1 flex flex-col items-center gap-4 mt-4 overflow-y-auto">
+      <div className="mt-4 flex min-w-0 flex-1 flex-col items-center gap-4">
         <div className="w-full max-w-4xl">
           <DocumentUpload onUploadComplete={handleUploadComplete} />
         </div>
@@ -109,7 +109,7 @@ const Upload = () => {
           {/* Recent Uploads */}
           {uploadedFiles.length > 0 && (
             <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
                 <h3 className="font-semibold text-gray-900">
                   Recently Uploaded
                 </h3>
@@ -126,19 +126,19 @@ const Upload = () => {
                 {uploadedFiles.slice(0, 3).map((file) => (
                   <div
                     key={file.id}
-                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+                    className="flex min-w-0 items-start gap-3 rounded-lg bg-gray-50 p-3"
                   >
-                    <div className="h-10 w-10 bg-primary-100 rounded-lg flex items-center justify-center">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-100">
                       <FileText size={20} className="text-primary-600" />
                     </div>
-                    <div className="flex-1">
-                      <h4 className="font-medium text-gray-900">{file.name}</h4>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="break-words font-medium text-gray-900 [overflow-wrap:anywhere]">{file.name}</h4>
                       <p className="text-sm text-gray-600">
                         {Math.round((file.size / 1024 / 1024) * 100) / 100} MB •
                         Uploaded successfully
                       </p>
                     </div>
-                    <div className="text-green-500">
+                    <div className="shrink-0 text-green-500">
                       <CheckCircle size={20} />
                     </div>
                   </div>
