@@ -14,10 +14,20 @@
 }
 
 @layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 2px;
+  }
+
   body {
     background-color: var(--background, #fff);
     color: var(--foreground, #000);
     font-family: "Inter", theme("fontFamily.sans");
+  }
+
+  #root {
+    min-width: 0;
+    min-height: 100vh;
   }
 }
 
@@ -62,24 +72,4 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
-}
-
-/* Clean Mobile Fix <768px */
-@media (max-width: 767px) {
-
-  html, body {
-    width: 100%;
-    overflow-x: hidden;
-  }
-
-  /* Remove excessive desktop padding */
-  main {
-    padding: 16px !important;
-  }
-
-  /* Ensure full width layout */
-  .min-h-screen {
-    width: 100%;
-  }
-
 }

@@ -307,6 +307,7 @@ const SearchBar = ({ onSearch, onFilterChange, placeholder = "Search documents..
 
       {/* Search Results */}
       {showResults && (
+        
         <Card className="absolute top-full mt-2 w-full z-40 max-h-96 overflow-y-auto">
           {isSearching ? (
             <div className="p-4 text-center">

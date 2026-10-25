@@ -268,32 +268,32 @@ const ChatBot = ({
      UI
   ================================ */
   return (
-    <Card className={`h-full flex flex-col ${className}`} padding="none">
+    <Card className={`h-full min-h-0 min-w-0 flex flex-col ${className}`} padding="none">
       {/* Tabs */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex min-w-0 border-b border-gray-200">
         <button
           onClick={() => setActiveTab("structured")}
-          className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === "structured"
+          className={`min-w-0 flex-1 px-2 py-3 text-xs font-medium border-b-2 sm:px-4 sm:text-sm ${activeTab === "structured"
             ? "border-primary-500 text-primary-600"
             : "border-transparent text-gray-500"
             }`}
         >
-          <div className="flex items-center gap-2">
-            <FileText size={16} />
-            Structured Data Output
+          <div className="flex min-w-0 items-center gap-2">
+            <FileText size={16} className="shrink-0" />
+            <span className="min-w-0 break-words">Structured Data Output</span>
           </div>
         </button>
 
         <button
           onClick={() => setActiveTab("chatbot")}
-          className={`px-4 py-3 text-sm font-medium border-b-2 ${activeTab === "chatbot"
+          className={`min-w-0 flex-1 px-2 py-3 text-xs font-medium border-b-2 sm:px-4 sm:text-sm ${activeTab === "chatbot"
             ? "border-primary-500 text-primary-600"
             : "border-transparent text-gray-500"
             }`}
         >
-          <div className="flex items-center gap-2">
-            <MessageSquare size={16} />
-            Chatbot
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <MessageSquare size={16} className="shrink-0" />
+            <span>Chatbot</span>
             {documentId ? (
               <Badge variant="success" size="sm" className="ml-1 scale-75 origin-left">
                 Context ON
@@ -310,7 +310,7 @@ const ChatBot = ({
       {/* CONTENT */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {activeTab === "structured" ? (
-          <div className="p-4 h-full overflow-y-auto space-y-6">
+          <div className="h-full min-w-0 space-y-6 overflow-y-auto p-4">
             {!documentId ? (
               <p className="text-gray-500 text-center">
                 Select a document to see its summary and risk analysis.
@@ -334,7 +334,7 @@ const ChatBot = ({
                 </div>
 
                 {/* RISK ANALYSIS */}
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <h3 className="font-semibold">Risk Analysis</h3>
                     {riskAnalysis && (
@@ -395,7 +395,7 @@ const ChatBot = ({
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div className="p-3 bg-gray-50 rounded-lg">
                           <p className="text-xs text-gray-500">Risk level</p>
                           <p className="font-semibold text-gray-900">
@@ -418,7 +418,7 @@ const ChatBot = ({
                       </div>
 
                       {riskAnalysis.summary && (
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                        <p className="break-words text-sm text-gray-700 whitespace-pre-wrap [overflow-wrap:anywhere]">
                           {riskAnalysis.summary}
                         </p>
                       )}
@@ -459,10 +459,10 @@ const ChatBot = ({
                                   {finding.severity} severity
                                 </span>
                               </div>
-                              <blockquote className="mt-2 rounded bg-gray-50 p-2 text-xs italic text-gray-700">
+                              <blockquote className="mt-2 break-words rounded bg-gray-50 p-2 text-xs italic text-gray-700 [overflow-wrap:anywhere]">
                                 “{finding.evidence}”
                               </blockquote>
-                              <p className="mt-2 text-xs text-gray-700">
+                              <p className="mt-2 break-words text-xs text-gray-700 [overflow-wrap:anywhere]">
                                 <span className="font-medium">
                                   AI interpretation:
                                 </span>{" "}
@@ -523,16 +523,16 @@ const ChatBot = ({
           <div className="flex-1 flex flex-col min-h-0">
             {/* DOCUMENT CONTEXT HEADER BANNER */}
             {!documentId ? (
-              <div className="bg-amber-50 border-b border-amber-200 px-3 py-2 text-xs text-amber-800 flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex shrink-0 items-start gap-1.5 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                 <FileText size={14} className="text-amber-600 flex-shrink-0" />
-                <span>No document selected. Please select a document from the list to ask questions about it.</span>
+                <span className="min-w-0 break-words">No document selected. Please select a document from the list to ask questions about it.</span>
               </div>
             ) : (
-              <div className="bg-blue-50 border-b border-blue-200 px-3 py-1.5 text-xs text-blue-800 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-1.5 truncate">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800">
+                <div className="flex min-w-0 items-center gap-1.5">
                   <FileText size={14} className="text-blue-600 flex-shrink-0" />
                   <span className="font-medium text-gray-700">Document:</span>
-                  <span className="truncate font-semibold text-blue-900">
+                  <span className="min-w-0 truncate font-semibold text-blue-900">
                     {selectedDocument?.title || documentId}
                   </span>
                 </div>
@@ -543,13 +543,13 @@ const ChatBot = ({
             )}
 
             {/* CHAT */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+            <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto p-3 sm:p-4">
               {messages.map((m) => {
                 const isUser = isUserMessage(m);
                 return (
                   <div
                     key={m.id}
-                    className={`flex items-start gap-2 ${
+                    className={`flex min-w-0 items-start gap-2 ${
                       isUser ? "justify-end" : "justify-start"
                     }`}
                   >
@@ -559,7 +559,7 @@ const ChatBot = ({
                       </div>
                     )}
                     <div
-                      className={`max-w-[85%] p-3 rounded-lg text-sm whitespace-pre-wrap shadow-xs ${
+                      className={`min-w-0 max-w-[85%] break-words whitespace-pre-wrap rounded-lg p-3 text-sm shadow-xs [overflow-wrap:anywhere] ${
                         isUser
                           ? "bg-blue-500 text-white"
                           : "bg-gray-100 text-gray-800 border border-gray-200"
@@ -610,20 +610,22 @@ const ChatBot = ({
             )}
 
             {/* INPUT */}
-            <div className="p-3 border-t bg-white">
-              <div className="flex gap-2">
-                <Input
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder={
-                    documentId
-                      ? "Ask about this document..."
-                      : "Please select a document from the list first..."
-                  }
-                  disabled={isTyping}
-                />
-                <Button onClick={handleSendMessage} disabled={isTyping || !inputMessage.trim()}>
+            <div className="shrink-0 border-t bg-white p-3">
+              <div className="flex min-w-0 gap-2">
+                <div className="min-w-0 flex-1">
+                  <Input
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder={
+                      documentId
+                        ? "Ask about this document..."
+                        : "Please select a document from the list first..."
+                    }
+                    disabled={isTyping}
+                  />
+                </div>
+                <Button className="min-h-11 min-w-11 shrink-0" aria-label="Send message" onClick={handleSendMessage} disabled={isTyping || !inputMessage.trim()}>
                   <Send size={16} />
                 </Button>
               </div>
@@ -651,3 +653,4 @@ ChatBot.propTypes = {
   onAnalyzeRisk: PropTypes.func,
   className: PropTypes.string,
 };
+

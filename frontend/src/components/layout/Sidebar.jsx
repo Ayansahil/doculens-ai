@@ -49,15 +49,19 @@ const Sidebar = () => {
     <>
       {/* Mobile overlay */}
       {!sidebarCollapsed && (
-        <div
+        <button
+          type="button"
+          aria-label="Close navigation menu"
           className="fixed inset-0 bg-black/50 backdrop-blur-xs z-40 lg:hidden"
           onClick={toggleSidebar}
         />
       )}
 
       <aside
+        id="primary-navigation"
+        aria-label="Primary navigation"
         className={`
-        fixed left-0 top-0 z-50 h-screen bg-[#1E293B] flex-shrink-0 transition-all duration-300 ease-in-out
+        fixed left-0 top-0 z-50 h-dvh max-h-dvh bg-[#1E293B] flex-shrink-0 transition-all duration-300 ease-in-out
         lg:relative lg:z-auto
         ${sidebarCollapsed ? "-translate-x-full lg:translate-x-0 lg:w-20" : "translate-x-0 w-72"}
       `}
@@ -111,7 +115,7 @@ const Sidebar = () => {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 py-6 overflow-y-auto">
+          <nav aria-label="Main" className="flex-1 min-h-0 px-3 py-6 overflow-y-auto">
             <div className="space-y-3">
               {navigationItems.map((item) => {
                 const Icon = item.icon;

@@ -7,7 +7,7 @@ const Layout = ({ children }) => {
   useApp();
 
   return (
-    <div className="flex min-h-screen bg-background overflow-hidden">
+    <div className="flex min-h-screen min-w-0 w-full bg-background">
       <Sidebar />
       <div className="flex flex-1 flex-col min-w-0 relative z-0 lg:z-auto">
         <Header />

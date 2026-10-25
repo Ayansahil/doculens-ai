@@ -146,7 +146,7 @@ const DocumentList = ({
       {/* Filters and Search */}
       <Card className="p-6">
         <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <Input
               placeholder="Search documents..."
               value={searchTerm}
@@ -155,11 +155,11 @@ const DocumentList = ({
             />
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row">
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Statuses</option>
               {Object.values(DOCUMENT_STATUSES).map((status) => (
@@ -172,7 +172,7 @@ const DocumentList = ({
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Types</option>
               <option value="PDF">PDF</option>
@@ -187,11 +187,12 @@ const DocumentList = ({
       {/* Documents Table */}
       <Card className="overflow-hidden">
         <div
-          className={`overflow-x-auto overflow-y-auto ${
-            filteredAndSortedDocuments.length > 0 ? "h-[320px]" : "h-auto"
-          }`}
+          role="region"
+          aria-label="Document table; scroll horizontally to see all columns"
+          tabIndex={0}
+          className="max-h-[60vh] min-w-0 overflow-auto focus-visible:outline"
         >
-          <table className="w-full">
+          <table className="w-full min-w-[48rem] xl:min-w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-6 py-3 text-left">
@@ -258,6 +259,14 @@ const DocumentList = ({
                   <tr
                     key={document.id}
                     onClick={() => handleDocumentAction("select", document)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleDocumentAction("select", document);
+                      }
+                    }}
+                    tabIndex={0}
                     className={`cursor-pointer transition-colors ${
                       isSelected
                         ? "bg-primary-50/80 hover:bg-primary-100/70 border-l-4 border-primary-500"
@@ -270,17 +279,17 @@ const DocumentList = ({
                           <FileText size={20} className="text-red-600" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium text-gray-900 truncate">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <h4 className="min-w-0 break-words font-medium text-gray-900 [overflow-wrap:anywhere]">
                               {document.title}
                             </h4>
                             {isSelected && (
-                              <Badge variant="success" size="sm">
+                              <Badge variant="success" size="sm" className="shrink-0">
                                 Selected
                               </Badge>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
                             <span className="text-xs text-gray-500">
                               {document.type} / {document.category}
                             </span>
@@ -298,7 +307,7 @@ const DocumentList = ({
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
+                    <td className="break-words px-6 py-4 text-sm text-gray-500 [overflow-wrap:anywhere]">
                       {formatDate(document.created_at)}
                     </td>
                     <td className="px-6 py-4">
@@ -333,32 +342,32 @@ const DocumentList = ({
                             e.stopPropagation();
                             handleDocumentAction("view", document);
                           }}
-                          className="p-1 hover:bg-gray-100"
+                          className="min-h-11 min-w-11 p-1 hover:bg-gray-100"
                           title="View document"
+                          aria-label={`View ${document.title}`}
                         >
                           <Eye size={16} />
                         </Button>
 
-                        <div
-                          className="relative group"
+                        <details
+                          className="relative"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="p-1 hover:bg-gray-100"
+                          <summary
+                            aria-label={`Actions for ${document.title}`}
+                            className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-md p-1 text-gray-600 hover:bg-gray-100 focus-visible:outline"
                           >
                             <MoreHorizontal size={16} />
-                          </Button>
+                          </summary>
 
-                          <div className="absolute right-0 top-8 w-48 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 text-left">
+                          <div className="mt-1 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white text-left shadow-lg">
                             <div className="py-1">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDocumentAction("download", document);
                                 }}
-                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
                               >
                                 <Download size={16} />
                                 Download
@@ -368,7 +377,7 @@ const DocumentList = ({
                                   e.stopPropagation();
                                   handleDocumentAction("edit", document);
                                 }}
-                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
                               >
                                 <Edit size={16} />
                                 Edit
@@ -388,14 +397,14 @@ const DocumentList = ({
                                   e.stopPropagation();
                                   handleDocumentAction("delete", document);
                                 }}
-                                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                                className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
                               >
                                 <Trash2 size={16} />
                                 Delete
                               </button>
                             </div>
                           </div>
-                        </div>
+                        </details>
                       </div>
                     </td>
                   </tr>
