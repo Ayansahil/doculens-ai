@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useCallback } from 'react';
+import { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import PropTypes from 'prop-types';
 
@@ -6,7 +6,9 @@ const AppContext = createContext();
 
 const initialState = {
   theme: 'light',
-  sidebarCollapsed: typeof window !== 'undefined' ? window.innerWidth < 1024 : false,
+  // Tablet widths need the compact icon rail; only xl (>= 1280) gets the
+  // full-width desktop sidebar by default.
+  sidebarCollapsed: typeof window !== 'undefined' ? window.innerWidth < 1280 : false,
   notifications: [],
   searchQuery: '',
   activeDocument: null,
@@ -78,6 +80,19 @@ const appReducer = (state, action) => {
 export const AppProvider = ({ children }) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const auth = useAuth();
+
+  // Keep tablet/desktop resizing from leaving a 288px sidebar over a narrow
+  // content area. Users can still expand the rail manually afterwards.
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1280) {
+        dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: true });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const addNotification = (notification) => {
     const id = Date.now().toString();

@@ -42,15 +42,20 @@ const Header = () => {
   const unreadNotifications = notifications.filter(n => !n.read).length;
 
   return (
-    <header className="bg-white border-b border-gray-200 px-4 py-2.5 sm:px-6 flex-shrink-0">
-      <div className="flex items-center justify-between gap-2 sm:gap-6 w-full min-w-0">
+    <header className="relative bg-white border-b border-gray-200 px-3 py-2 sm:px-6 sm:py-2.5 flex-shrink-0">
+      {/*
+        Below `sm` the header deliberately uses two rows: menu + search on the
+        first, actions on the second. At 320px a single row leaves the search
+        input ~90px wide, so wrapping is clearer than squeezing.
+      */}
+      <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:flex-nowrap md:gap-3">
         {/* Left side - Menu button for mobile/tablet */}
-        <div className="flex items-center lg:hidden flex-shrink-0">
+        <div className="flex shrink-0 items-center max-md:order-1 lg:hidden">
           <Button
             variant="ghost"
             size="sm"
             onClick={toggleSidebar}
-            className="min-h-11 min-w-11 p-2 text-gray-600 hover:text-gray-900"
+            className="h-11 w-11 p-0 text-gray-600 hover:text-gray-900"
             aria-label="Toggle navigation menu"
             aria-expanded={!sidebarCollapsed}
             aria-controls="primary-navigation"
@@ -60,16 +65,16 @@ const Header = () => {
         </div>
 
         {/* Center - Search */}
-        <div className="flex-1 max-w-2xl min-w-0">
+        <div className="min-w-0 flex-1 max-md:order-2 max-md:basis-0 md:max-w-2xl">
           <SearchBar placeholder="Search all documents..." />
         </div>
 
         {/* Right side - Actions and Profile */}
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        <div className="flex items-center justify-end gap-1.5 max-md:order-3 max-md:basis-full md:ml-auto md:gap-3">
           <Button
             variant="primary"
             size="md"
-            className="p-2 sm:px-4 sm:py-2"
+            className="h-11 w-11 p-0 sm:h-auto sm:w-auto sm:px-4 sm:py-2"
             icon={<Upload size={16} />}
             onClick={handleUploadClick}
             aria-label="Upload document"
@@ -78,12 +83,17 @@ const Header = () => {
           </Button>
 
           {/* Notifications */}
-          <div className="relative" ref={notificationRef}>
+          {/*
+            On mobile the wrapper is static so the panel is positioned against
+            the header itself (safe left/right margins). From `sm` up it becomes
+            relative and anchors to the bell.
+          */}
+          <div className="md:relative" ref={notificationRef}>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setShowNotifications(!showNotifications)}
-              className="min-h-11 min-w-11 p-2 relative text-gray-600 hover:text-gray-900"
+              className="h-11 w-11 p-0 relative text-gray-600 hover:text-gray-900"
               aria-label="Notifications"
               aria-expanded={showNotifications}
             >
@@ -96,7 +106,7 @@ const Header = () => {
             </Button>
 
             {showNotifications && (
-              <div className="absolute right-0 mt-2 w-[min(20rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+              <div className="absolute left-3 right-3 top-full z-50 mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg md:left-auto md:right-0 md:w-80">
                 <div className="p-4 border-b border-gray-200">
                   <h3 className="font-semibold text-gray-900">Notifications</h3>
                 </div>
@@ -113,7 +123,7 @@ const Header = () => {
                           !notification.read ? 'bg-blue-50' : ''
                         }`}
                       >
-                        <p className="text-sm text-gray-900">{notification.message}</p>
+                        <p className="text-sm text-gray-900 break-words [overflow-wrap:anywhere]">{notification.message}</p>
                         <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
                       </div>
                     ))
@@ -129,7 +139,7 @@ const Header = () => {
               variant="ghost"
               size="sm"
               onClick={() => setShowProfile(!showProfile)}
-              className="min-h-11 min-w-11 p-1 sm:p-2 flex items-center gap-2"
+              className="h-11 w-11 p-0 sm:h-auto sm:w-auto sm:p-2 flex items-center gap-2"
               aria-label="User profile"
               aria-expanded={showProfile}
             >

@@ -268,7 +268,7 @@ const ChatBot = ({
      UI
   ================================ */
   return (
-    <Card className={`h-full min-h-0 min-w-0 flex flex-col ${className}`} padding="none">
+    <Card className={`h-full min-h-0 min-w-0 flex flex-col ${className}`} padding="md">
       {/* Tabs */}
       <div className="flex min-w-0 border-b border-gray-200">
         <button

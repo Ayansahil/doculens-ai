@@ -213,13 +213,14 @@ const SearchBar = ({ onSearch, onFilterChange, placeholder = "Search documents..
           }}
           leftIcon={<Search size={16} />}
           rightIcon={
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               {query && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={clearSearch}
-                  className="p-0.5 hover:bg-gray-200 rounded"
+                  className="h-7 w-7 p-0 hover:bg-gray-200 rounded"
+                  aria-label="Clear search"
                 >
                   <X size={14} />
                 </Button>
@@ -228,13 +229,15 @@ const SearchBar = ({ onSearch, onFilterChange, placeholder = "Search documents..
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowFilters(!showFilters)}
-                className={`p-1 rounded ${showFilters ? 'bg-primary-100 text-primary-600' : 'hover:bg-gray-100'}`}
+                className={`h-7 w-7 p-0 rounded ${showFilters ? 'bg-primary-100 text-primary-600' : 'hover:bg-gray-100'}`}
+                aria-label="Search filters"
+                aria-expanded={showFilters}
               >
                 <Filter size={14} />
               </Button>
             </div>
           }
-          className="pr-16"
+          className="pr-20"
         />
       </div>
 
@@ -242,7 +245,7 @@ const SearchBar = ({ onSearch, onFilterChange, placeholder = "Search documents..
       {showFilters && (
         <Card className="absolute top-full mt-2 w-full z-50 p-4">
           <h3 className="font-medium text-gray-900 mb-3">Search Filters</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 md:grid-cols-4">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
               <select
@@ -332,17 +335,17 @@ const SearchBar = ({ onSearch, onFilterChange, placeholder = "Search documents..
                       console.log('Selected result:', result);
                     }}
                   >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         <FileText size={16} className="text-gray-400 flex-shrink-0" />
-                        <h4 className="font-medium text-gray-900 text-sm">{result.title}</h4>
+                        <h4 className="min-w-0 font-medium text-gray-900 text-sm break-words [overflow-wrap:anywhere]">{result.title}</h4>
                       </div>
-                      <Badge variant={getStatusBadgeVariant(result.status)} size="sm">
+                      <Badge variant={getStatusBadgeVariant(result.status)} size="sm" className="flex-shrink-0">
                         {result.status}
                       </Badge>
                     </div>
-                    <p className="text-xs text-gray-600 mb-2">{result.excerpt}</p>
-                    <div className="flex items-center justify-between text-xs text-gray-500">
+                    <p className="text-xs text-gray-600 mb-2 break-words [overflow-wrap:anywhere]">{result.excerpt}</p>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
                       <span>{result.type} / {result.category}</span>
                       <span>{result.date}</span>
                     </div>

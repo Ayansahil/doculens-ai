@@ -360,7 +360,7 @@ const DocumentList = ({
                             <MoreHorizontal size={16} />
                           </summary>
 
-                          <div className="mt-1 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white text-left shadow-lg">
+                          <div className="absolute right-0 top-full z-20 mt-1 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white text-left shadow-lg">
                             <div className="py-1">
                               <button
                                 onClick={(e) => {

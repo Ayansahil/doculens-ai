@@ -72,7 +72,7 @@ const Input = forwardRef(({
                 {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
               </button>
             ) : rightIcon ? (
-              <div className="h-5 w-5 text-gray-400">
+              <div className="flex items-center text-gray-400">
                 {rightIcon}
               </div>
             ) : null}

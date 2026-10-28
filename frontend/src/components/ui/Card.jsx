@@ -27,7 +27,9 @@ const Card = forwardRef(({
   };
   
   const hoverEffect = hover ? 'hover:shadow-md transition-shadow duration-200' : '';
-  const paddingClasses = paddings[padding] || paddings.md;
+  // `none` maps to an empty class string, so a truthiness check would wrongly
+  // fall back to the default padding.
+  const paddingClasses = padding in paddings ? paddings[padding] : paddings.md;
   const shadowClasses = shadows[shadow] || shadows.sm;
   
   return (
