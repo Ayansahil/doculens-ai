@@ -1,7 +1,40 @@
-import fetch from "node-fetch";
 import { supabase } from "../config/db.js";
+import { limits } from "../config/limits.js";
+import * as aiClient from "./ai-client.service.js";
+import { getAiUsageService } from "./ai-usage.service.js";
 
 const EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings";
+
+const getEmbeddingModel = () =>
+  process.env.EMBEDDING_MODEL || "nvidia/nemotron-3-embed-1b:free";
+
+/**
+ * Embedding calls are tracked as AI usage but are NOT charged against the
+ * daily chat/risk quota. They are bounded by upload size and chunk limits.
+ */
+const recordEmbeddingUsage = async ({
+  userId,
+  status,
+  requestCount = 1,
+  durationMs = null,
+  errorCode = null,
+}) => {
+  if (!userId) return;
+  try {
+    const usageService = await getAiUsageService();
+    await usageService.record({
+      userId,
+      kind: "embedding",
+      model: getEmbeddingModel(),
+      status,
+      requestCount,
+      durationMs,
+      errorCode,
+    });
+  } catch (error) {
+    console.warn("[rag] usage tracking skipped:", error?.message || error);
+  }
+};
 
 /**
  * Generate embeddings for a given text using OpenRouter
@@ -15,11 +48,11 @@ export const generateEmbedding = async (text, inputType = null) => {
     throw new Error("Missing OpenRouter API key. Please check HF_API_KEY in .env");
   }
 
-  const model = process.env.EMBEDDING_MODEL || "nvidia/nemotron-3-embed-1b:free";
+  const model = getEmbeddingModel();
 
   const requestBody = {
     model,
-    input: text.replace(/\n+/g, " ").trim(),
+    input: String(text || "").replace(/\n+/g, " ").trim(),
   };
 
   if (inputType) {
@@ -27,40 +60,37 @@ export const generateEmbedding = async (text, inputType = null) => {
   }
 
   try {
-    // ⏱️ Embedding calls are normally fast (2-5s); abort after 20s so the
-    // caller can fall back to keyword search instead of hanging the request.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const result = await aiClient.postJson({
+      url: EMBEDDINGS_URL,
+      apiKey,
+      body: requestBody,
+      timeoutMs: limits.embeddingTimeoutMs,
+      deadlineMs: limits.embeddingAiDeadlineMs,
+      maxRetries: limits.embeddingMaxRetries,
+      label: `Embedding model "${model}"`,
+    });
 
-    let response;
-    try {
-      response = await fetch(EMBEDDINGS_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let safeError = errorText;
+    if (!result.ok) {
+      let safeError = result.raw;
       try {
-        const errorJson = JSON.parse(errorText);
-        safeError = errorJson.error?.message || errorText;
+        const errorJson = JSON.parse(result.raw);
+        safeError = errorJson.error?.message || result.raw;
       } catch {
         // keep text if not JSON
       }
-      console.error(`❌ Embedding API failed (${response.status} ${response.statusText}): ${safeError}`);
-      throw new Error(`Embedding API failed with status ${response.status}: ${safeError}`);
+      console.error(
+        `❌ Embedding API failed (${result.status}): ${safeError}`,
+      );
+      throw new Error(`Embedding API failed with status ${result.status}: ${safeError}`);
     }
 
-    const data = await response.json();
+    let data;
+    try {
+      data = JSON.parse(result.raw);
+    } catch {
+      throw new Error("Invalid embedding response: not valid JSON");
+    }
+
     const embedding = data?.data?.[0]?.embedding;
 
     if (!Array.isArray(embedding) || embedding.length === 0 || typeof embedding[0] !== "number") {
@@ -115,12 +145,32 @@ export const chunkText = (text, minSize = 500, maxSize = 1000) => {
 };
 
 /**
- * Chunk text, generate embeddings, and store in database
+ * Chunk text, generate embeddings, and store in database.
+ * The text and chunk count are capped so a single upload cannot trigger an
+ * unbounded number of paid embedding calls.
  */
-export const chunkAndStore = async (documentId, text) => {
+export const chunkAndStore = async (documentId, text, { userId = null } = {}) => {
+  const startedAt = Date.now();
+  let completedRequests = 0;
+
   try {
     console.log(`📦 Chunking and storing document: ${documentId}`);
-    const chunks = chunkText(text);
+
+    const sourceText = String(text || "");
+    const cappedText = sourceText.slice(0, limits.maxExtractedTextChars);
+    if (cappedText.length < sourceText.length) {
+      console.warn(
+        `⚠️ Extracted text capped at ${limits.maxExtractedTextChars} characters for document ${documentId}`,
+      );
+    }
+
+    const allChunks = chunkText(cappedText);
+    const chunks = allChunks.slice(0, limits.maxDocumentChunks);
+    if (allChunks.length > chunks.length) {
+      console.warn(
+        `⚠️ Chunk count capped at ${limits.maxDocumentChunks} (${allChunks.length} generated) for document ${documentId}`,
+      );
+    }
     console.log(`📄 Created ${chunks.length} chunks`);
 
     if (chunks.length === 0) {
@@ -144,6 +194,7 @@ export const chunkAndStore = async (documentId, text) => {
     for (let i = 0; i < chunks.length; i++) {
       const content = chunks[i];
       const embedding = await generateEmbedding(content, "passage");
+      completedRequests += 1;
       records.push({
         document_id: documentId,
         content,
@@ -160,9 +211,23 @@ export const chunkAndStore = async (documentId, text) => {
       console.error("Error storing chunk records:", insertError.message);
       throw insertError;
     }
-    
+
+    await recordEmbeddingUsage({
+      userId,
+      status: "success",
+      requestCount: completedRequests,
+      durationMs: Date.now() - startedAt,
+    });
+
     console.log(`✅ All ${records.length} chunks and embeddings stored successfully`);
   } catch (error) {
+    await recordEmbeddingUsage({
+      userId,
+      status: "error",
+      requestCount: Math.max(1, completedRequests),
+      durationMs: Date.now() - startedAt,
+      errorCode: "EMBEDDING_FAILED",
+    });
     console.error("Fatal error in chunkAndStore:", error.message);
     throw error;
   }
@@ -171,9 +236,24 @@ export const chunkAndStore = async (documentId, text) => {
 /**
  * Retrieve relevant chunks using semantic search
  */
-export const getRelevantChunks = async (documentId, query, topK = 3, matchThreshold = 0.0) => {
+export const getRelevantChunks = async (
+  documentId,
+  query,
+  topK = 3,
+  matchThreshold = 0.0,
+  { userId = null } = {},
+) => {
+  const startedAt = Date.now();
+  let embeddingSucceeded = false;
   try {
     const queryEmbedding = await generateEmbedding(query, "query");
+    embeddingSucceeded = true;
+    await recordEmbeddingUsage({
+      userId,
+      status: "success",
+      requestCount: 1,
+      durationMs: Date.now() - startedAt,
+    });
 
     const { data, error } = await supabase.rpc("match_document_chunks", {
       query_embedding: queryEmbedding,
@@ -191,6 +271,15 @@ export const getRelevantChunks = async (documentId, query, topK = 3, matchThresh
       return data;
     }
   } catch (error) {
+    if (!embeddingSucceeded) {
+      await recordEmbeddingUsage({
+        userId,
+        status: "error",
+        requestCount: 1,
+        durationMs: Date.now() - startedAt,
+        errorCode: "EMBEDDING_FAILED",
+      });
+    }
     console.error("Vector search retrieval unavailable:", error.message);
   }
 
@@ -227,4 +316,3 @@ export const getRelevantChunks = async (documentId, query, topK = 3, matchThresh
     return [];
   }
 };
-

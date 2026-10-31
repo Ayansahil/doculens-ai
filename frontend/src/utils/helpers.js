@@ -113,6 +113,48 @@ export const truncateText = (text, maxLength = 100) => {
   return text.substr(0, maxLength) + '...';
 };
 
+/**
+ * Preserve the backend's actionable 429/409 message and retry information
+ * instead of replacing it with a generic client-side message.
+ */
+export const getApiErrorMessage = (
+  error,
+  fallback = 'Something went wrong. Please try again.',
+) => {
+  const response = error?.response;
+  const data = response?.data;
+  const raw = data?.message || data?.error || error?.message;
+  let message = typeof raw === 'string' && raw.trim() ? raw.trim() : fallback;
+
+  if (error?.code === 'ECONNABORTED' || /timeout of \d+ms/i.test(message)) {
+    return 'The request took longer than usual. Please try again.';
+  }
+  if (!response && error?.request) {
+    return 'Cannot reach the server. Please check that the backend is running and try again.';
+  }
+
+  const retryAfter = Number(
+    data?.retryAfter ?? response?.headers?.['retry-after'],
+  );
+  if (
+    Number.isFinite(retryAfter) &&
+    retryAfter > 0 &&
+    (response?.status === 429 || response?.status === 409)
+  ) {
+    const wait =
+      retryAfter >= 120
+        ? `${Math.ceil(retryAfter / 60)} minutes`
+        : retryAfter >= 60
+          ? '1 minute'
+          : `${Math.max(1, Math.ceil(retryAfter))} seconds`;
+    if (!/try again in/i.test(message)) {
+      message = `${message.replace(/[.\s]+$/, '')}. Try again in ${wait}.`;
+    }
+  }
+
+  return message;
+};
+
 export const validateFile = (file) => {
   const allowedTypes = [
     'application/pdf',

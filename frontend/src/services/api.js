@@ -95,6 +95,7 @@ export const api = {
   // Analytics
   getDashboardStats: () => apiClient.get("/analytics/dashboard"),
   getStorageInfo: () => apiClient.get("/analytics/storage"),
+  getAiUsage: () => apiClient.get("/analytics/ai-usage"),
 
   // Documents – AI Summary
   summarizeDocument: (id) => apiClient.post(`/documents/${id}/summarize`),

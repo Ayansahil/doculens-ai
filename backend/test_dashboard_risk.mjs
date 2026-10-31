@@ -13,6 +13,7 @@
 // Uses TEST_* users from backend/.env and creates/removes its own fixtures.
 // ============================================================
 
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from './src/config/db.js';
 import {
   buildAnalysisResult,
@@ -22,6 +23,15 @@ import {
 } from './src/services/risk.service.js';
 
 const API_BASE = (process.env.API_BASE || 'http://localhost:3001').replace(/\/+$/, '');
+
+// Dedicated auth client: verifyOtp attaches a user session to the client it
+// runs on. Using the shared service-role client would make fixture DB checks
+// run under RLS as the last signed-in test user.
+const authClient = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false } },
+);
 const USER1_EMAIL = process.env.TEST_USER1_EMAIL;
 const USER2_EMAIL = process.env.TEST_USER2_EMAIL;
 const USER1_ID = process.env.TEST_USER1_ID;
@@ -62,13 +72,13 @@ async function api(path, { token, ...options } = {}) {
 }
 
 async function getAccessTokenForUser(email) {
-  const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+  const { data: linkData, error: linkErr } = await authClient.auth.admin.generateLink({
     type: 'magiclink',
     email,
   });
   if (linkErr) throw new Error(`generateLink failed for ${email}: ${linkErr.message}`);
 
-  const { data, error } = await supabase.auth.verifyOtp({
+  const { data, error } = await authClient.auth.verifyOtp({
     email,
     token: linkData.properties.email_otp,
     type: 'email',

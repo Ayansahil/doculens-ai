@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .env
+backend/.env.example
 backend/uploads/
 backend/test_chat_openrouter.mjs
 backend/test_issues_verification.mjs

@@ -1,26 +1,84 @@
-import fetch from "node-fetch";
 import { supabase } from "../config/db.js";
 import * as ragService from "../services/rag.service.js";
+import * as aiClient from "../services/ai-client.service.js";
+import { getQuotaService } from "../services/rate-limit.service.js";
+import { getAiUsageService } from "../services/ai-usage.service.js";
+import { limits } from "../config/limits.js";
+import {
+  sendRateLimited,
+  setQuotaHeaders,
+} from "../utils/rate-limit-response.js";
 
 const HF_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-// ✅ NOTE: OpenRouter URL is ALWAYS 'const' because it's a fixed endpoint.
-// Using 'let' doesn't help with 429 errors.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const consumeQuotaSafely = async (userId) => {
+  try {
+    const quotaService = await getQuotaService();
+    return await quotaService.consume(userId);
+  } catch (error) {
+    // Fail open only if the rate-limit store itself is broken; the request
+    // limiter middleware already protects throughput.
+    console.error("[chat] quota check failed:", error?.message || error);
+    return {
+      allowed: true,
+      unlimited: true,
+      limit: 0,
+      used: 0,
+      remaining: null,
+      retryAfter: 0,
+      resetAt: null,
+    };
+  }
+};
 
 export const sendChatMessage = async (req, res) => {
-  try {
-    console.log("📩 Request Body:", req.body);
+  const startedAt = Date.now();
+  const model = process.env.HF_MODEL || "unknown";
+  let usageRecorded = false;
 
+  const recordUsage = async (status, { usage = null, errorCode = null } = {}) => {
+    if (usageRecorded) return;
+    usageRecorded = true;
+    try {
+      const usageService = await getAiUsageService();
+      await usageService.record({
+        userId: req.user.id,
+        kind: "chat",
+        model,
+        status,
+        requestCount: 1,
+        promptTokens: usage?.promptTokens,
+        completionTokens: usage?.completionTokens,
+        totalTokens: usage?.totalTokens,
+        durationMs: Date.now() - startedAt,
+        errorCode,
+      });
+    } catch (error) {
+      console.warn("[chat] usage tracking skipped:", error?.message || error);
+    }
+  };
+
+  try {
     // Accept multiple variations of documentId and sanitize null/empty strings
-    const message = req.body.message;
-    const rawDocId = req.body.documentId || req.body.document_id || req.body.documentID;
+    const message = typeof req.body?.message === "string" ? req.body.message : "";
+    const rawDocId = req.body?.documentId || req.body?.document_id || req.body?.documentID;
     const documentId = (rawDocId && rawDocId !== "null" && rawDocId !== "undefined" && String(rawDocId).trim() !== "")
       ? String(rawDocId).trim()
       : null;
 
-    if (!message || !message.trim()) {
+    if (!message.trim()) {
       return res.status(400).json({
         success: false,
         message: "Message is required",
+      });
+    }
+
+    if (message.length > limits.maxChatMessageChars) {
+      return res.status(400).json({
+        success: false,
+        code: "MESSAGE_TOO_LONG",
+        message: `Message is too long. Maximum ${limits.maxChatMessageChars.toLocaleString()} characters.`,
       });
     }
 
@@ -39,6 +97,23 @@ export const sendChatMessage = async (req, res) => {
       }
     }
 
+    // 🎟️ Daily AI quota. Identity comes only from the verified JWT.
+    const quota = await consumeQuotaSafely(req.user.id);
+    setQuotaHeaders(res, quota);
+
+    if (!quota.allowed) {
+      return sendRateLimited(res, {
+        code: "AI_DAILY_QUOTA_EXCEEDED",
+        message:
+          "Your daily AI request limit has been reached. Please try again after the quota resets.",
+        info: { ttlMs: quota.retryAfter * 1000, count: quota.used },
+        limit: quota.limit,
+        scope: "ai-daily",
+        windowMs: DAY_MS,
+        quota,
+      });
+    }
+
     // 1️⃣ Save USER message
     const { data: userMsg, error: userError } = await supabase
       .from("chat_history")
@@ -52,7 +127,6 @@ export const sendChatMessage = async (req, res) => {
       .single();
 
     if (userError) throw userError;
-    console.log("✅ User message saved");
 
     // 1.5 Retrieve Context (RAG)
     let context = "";
@@ -77,9 +151,13 @@ export const sendChatMessage = async (req, res) => {
         .join(" | ");
       const retrievalQuery = historyText ? `${historyText} ${message}` : message;
 
-      console.log(`🔍 RAG: Fetching context for doc ${documentId}`);
-      const relevantChunks = await ragService.getRelevantChunks(documentId, retrievalQuery, 3, 0.0);
-      console.log(`📄 RAG: Found ${relevantChunks.length} chunks`);
+      const relevantChunks = await ragService.getRelevantChunks(
+        documentId,
+        retrievalQuery,
+        3,
+        0.0,
+        { userId: req.user.id },
+      );
 
       // If retrieval returns zero chunks, do not generate a generic LLM answer; return a clear diagnostic response instead
       if (relevantChunks.length === 0) {
@@ -95,8 +173,6 @@ export const sendChatMessage = async (req, res) => {
           diagnosticMessage = `No relevant content matched your query for document ID: ${documentId} (${totalChunks} chunks indexed). Please try asking a more specific question about the document content.`;
         }
 
-        console.log(`⚠️ RAG diagnostic response: ${diagnosticMessage}`);
-
         const { data: botMsg, error: botError } = await supabase
           .from("chat_history")
           .insert({
@@ -110,6 +186,8 @@ export const sendChatMessage = async (req, res) => {
 
         if (botError) throw botError;
 
+        await recordUsage("success", { errorCode: "DIAGNOSTIC_NO_MODEL" });
+
         return res.json({
           success: true,
           userMessage: userMsg,
@@ -120,6 +198,9 @@ export const sendChatMessage = async (req, res) => {
       }
 
       context = relevantChunks.map((c, i) => `[Chunk ${i + 1}]:\n${c.content}`).join("\n\n");
+      if (context.length > limits.maxChatContextChars) {
+        context = context.slice(0, limits.maxChatContextChars);
+      }
     }
 
     // 2️⃣ Call OpenRouter (with RAG context if document selected, or general assistant if no document)
@@ -131,92 +212,107 @@ export const sendChatMessage = async (req, res) => {
       ? `Selected Document ID: ${documentId}\n${historyText ? `Recent questions in this chat: ${historyText}\n` : ""}Document Context:\n${context}\n\nUser Question: ${message}`
       : message;
 
-    // ⏱️ Provider timeout: if OpenRouter doesn't answer in 50s, abort and
-    // return a friendly 504 (frontend waits up to 60s for chat).
-    const PROVIDER_TIMEOUT_MS = 50000;
-    const providerController = new AbortController();
-    const providerTimer = setTimeout(() => providerController.abort(), PROVIDER_TIMEOUT_MS);
-
-    let hfResponse;
+    let result;
     try {
-      hfResponse = await fetch(HF_API_URL, {
-        method: "POST",
+      result = await aiClient.postJson({
+        url: HF_API_URL,
+        apiKey: process.env.HF_API_KEY,
+        body: {
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: documentId ? 0.1 : 0.3,
+          max_tokens: limits.maxChatOutputTokens,
+        },
         headers: {
-          Authorization: `Bearer ${process.env.HF_API_KEY}`,
-          "Content-Type": "application/json",
           "HTTP-Referer": "http://localhost:3000",
           "X-Title": "Doculens AI",
         },
-        body: JSON.stringify({
-          model: process.env.HF_MODEL,
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt,
-            },
-            {
-              role: "user",
-              content: userPrompt,
-            },
-          ],
-          temperature: documentId ? 0.1 : 0.3,
-          max_tokens: 2048,
-        }),
-        signal: providerController.signal,
+        timeoutMs: limits.chatProviderTimeoutMs,
+        deadlineMs: limits.chatAiDeadlineMs,
+        maxRetries: limits.aiMaxRetries,
+        label: `Chat model "${model}"`,
       });
-    } catch (fetchErr) {
-      if (fetchErr.name === "AbortError" || providerController.signal.aborted) {
-        console.error("⏱️ OpenRouter timed out after", PROVIDER_TIMEOUT_MS, "ms");
-        const timeoutMessage =
-          "The AI provider is responding slowly right now. Please try again in a moment.";
-        return res.status(504).json({
-          success: false,
-          status: 504,
-          message: timeoutMessage,
-          error: timeoutMessage,
-        });
-      }
-      throw fetchErr;
-    } finally {
-      clearTimeout(providerTimer);
+    } catch (error) {
+      await recordUsage("error", { errorCode: error.code || "AI_UNREACHABLE" });
+      const status = error.status || 502;
+      const friendly =
+        error.message || "The AI provider is temporarily unavailable. Please try again.";
+      return res.status(status).json({
+        success: false,
+        status,
+        code: error.code || null,
+        message: friendly,
+        error: friendly,
+        retryAfter: error.retryAfter || null,
+      });
     }
 
-    const raw = await hfResponse.text();
-    console.log("📡 OpenRouter RAW:", raw.substring(0, 500));
-
-    if (!hfResponse.ok) {
-      let errorMessage = `OpenRouter API failed (${hfResponse.status})`;
-      let isQuotaExhausted = hfResponse.status === 429;
+    if (!result.ok) {
+      let errorMessage = `OpenRouter API failed (${result.status})`;
+      let isQuotaExhausted = Boolean(result.quotaExhausted);
       try {
-        const errorData = JSON.parse(raw);
+        const errorData = JSON.parse(result.raw);
         if (errorData.error?.message) {
           errorMessage = errorData.error.message;
         }
         if (
-          errorData.error?.code === 429 ||
-          /rate limit|quota|free-models-per-day/i.test(errorMessage) ||
-          /rate limit|quota|free-models-per-day/i.test(raw)
+          errorData.error?.code === "insufficient_quota" ||
+          /quota|free-models-per-day|credits/i.test(errorMessage)
         ) {
           isQuotaExhausted = true;
         }
-      } catch (e) {
-        // Keep initial error message if JSON parse fails
+      } catch {
+        // Keep the initial error message if JSON parse fails
+        if (/quota|free-models-per-day|credits/i.test(result.raw || "")) {
+          isQuotaExhausted = true;
+        }
       }
 
       if (isQuotaExhausted) {
+        await recordUsage("error", { errorCode: "PROVIDER_QUOTA" });
         const quotaMessage =
           "The free AI request limit has been reached. Please try again after the quota resets.";
+        const retryAfter = Math.max(
+          1,
+          Math.ceil((result.retryAfterMs || 60_000) / 1000),
+        );
+        res.set("Retry-After", String(retryAfter));
         return res.status(429).json({
           success: false,
           status: 429,
+          code: "PROVIDER_QUOTA_EXHAUSTED",
           message: quotaMessage,
           error: quotaMessage,
+          retryAfter,
+        });
+      }
+
+      if (result.status === 429) {
+        await recordUsage("error", { errorCode: "PROVIDER_RATE_LIMITED" });
+        const rateMessage =
+          "The AI provider is rate limiting requests. Please try again shortly.";
+        const retryAfter = Math.max(
+          1,
+          Math.ceil((result.retryAfterMs || 5_000) / 1000),
+        );
+        res.set("Retry-After", String(retryAfter));
+        return res.status(429).json({
+          success: false,
+          status: 429,
+          code: "PROVIDER_RATE_LIMITED",
+          message: rateMessage,
+          error: rateMessage,
+          retryAfter,
         });
       }
 
       // Friendly, non-technical messages for other provider failures
       // (never expose raw provider details or API keys)
-      if (hfResponse.status === 402) {
+      if (result.status === 402) {
+        await recordUsage("error", { errorCode: "PROVIDER_CREDITS" });
         const creditMessage =
           "The AI service has run out of free credits. Please try again later or contact support.";
         return res.status(402).json({
@@ -226,7 +322,8 @@ export const sendChatMessage = async (req, res) => {
           error: creditMessage,
         });
       }
-      if (hfResponse.status === 404) {
+      if (result.status === 404) {
+        await recordUsage("error", { errorCode: "MODEL_UNAVAILABLE" });
         const modelMessage =
           "The configured AI model is currently unavailable. Please try again later.";
         return res.status(503).json({
@@ -236,7 +333,8 @@ export const sendChatMessage = async (req, res) => {
           error: modelMessage,
         });
       }
-      if (hfResponse.status >= 500) {
+      if (result.status >= 500) {
+        await recordUsage("error", { errorCode: "PROVIDER_ERROR" });
         const providerMessage =
           "The AI provider had a temporary problem. Please try again in a moment.";
         return res.status(502).json({
@@ -247,12 +345,33 @@ export const sendChatMessage = async (req, res) => {
         });
       }
 
-      const apiError = new Error(errorMessage);
-      apiError.status = hfResponse.status;
-      throw apiError;
+      await recordUsage("error", {
+        errorCode: `PROVIDER_HTTP_${result.status}`,
+      });
+      const rejectedMessage =
+        "The AI provider rejected the request. Please try again.";
+      return res.status(result.status >= 400 && result.status < 500 ? result.status : 502).json({
+        success: false,
+        status: result.status,
+        message: rejectedMessage,
+        error: rejectedMessage,
+      });
     }
 
-    const hfData = JSON.parse(raw);
+    let hfData;
+    try {
+      hfData = JSON.parse(result.raw);
+    } catch {
+      await recordUsage("error", { errorCode: "INVALID_PROVIDER_JSON" });
+      const invalidMessage =
+        "The AI provider returned an unreadable response. Please try again.";
+      return res.status(502).json({
+        success: false,
+        status: 502,
+        message: invalidMessage,
+        error: invalidMessage,
+      });
+    }
 
     let botText = "I couldn't generate a response.";
 
@@ -261,7 +380,7 @@ export const sendChatMessage = async (req, res) => {
     } else if (hfData?.choices?.[0]?.finish_reason === "length") {
       botText = "The response was too long to be generated. Please try a more specific question.";
     } else if (hfData?.error) {
-      botText = `❌ Error: ${hfData.error.message}`;
+      botText = "The AI provider returned an error. Please try again.";
     }
 
     // Strip internal reasoning traces if present in content
@@ -283,7 +402,7 @@ export const sendChatMessage = async (req, res) => {
       }
     }
 
-    console.log("💬 Bot reply:", botText.substring(0, 100));
+    await recordUsage("success", { usage: aiClient.extractUsage(result.raw) });
 
     // 3️⃣ Save BOT message
     const { data: botMsg, error: botError } = await supabase
@@ -298,7 +417,6 @@ export const sendChatMessage = async (req, res) => {
       .single();
 
     if (botError) throw botError;
-    console.log("✅ Bot message saved");
 
     // 4️⃣ Send response (with consistent fields for all frontend expectations)
     res.json({
@@ -313,22 +431,8 @@ export const sendChatMessage = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("💥 Chat Error:", error.message);
-    const isQuotaExhausted =
-      error.status === 429 ||
-      /429|rate limit|quota|free-models-per-day/i.test(error.message);
-
-    if (isQuotaExhausted) {
-      const quotaMessage =
-        "The free AI request limit has been reached. Please try again after the quota resets.";
-      return res.status(429).json({
-        success: false,
-        status: 429,
-        message: quotaMessage,
-        error: quotaMessage,
-      });
-    }
-
+    console.error("💥 Chat Error:", error.message || error);
+    await recordUsage("error", { errorCode: "CHAT_FAILED" });
     res.status(error.status || 500).json({
       success: false,
       message: error.message || "Failed to process message",

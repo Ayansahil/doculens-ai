@@ -1,10 +1,10 @@
 import { useState, useRef } from 'react';
-import { Upload, File, X, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, File, CheckCircle, AlertCircle } from 'lucide-react';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import PropTypes from 'prop-types';
 import { api } from '../../services/api';
-import { formatFileSize, validateFile } from '../../utils/helpers';
+import { formatFileSize, getApiErrorMessage, validateFile } from '../../utils/helpers';
 import { useApp } from '../../context/AppContext';
 
 const DocumentUpload = ({ onUploadComplete }) => {
@@ -55,9 +55,12 @@ const DocumentUpload = ({ onUploadComplete }) => {
         f.status = 'uploaded';
         f.progress = 100;
         addNotification({ type: 'success', message: `${f.name} uploaded` });
-      } catch {
+      } catch (error) {
         f.status = 'error';
-        addNotification({ type: 'error', message: `Upload failed: ${f.name}` });
+        addNotification({
+          type: 'error',
+          message: `${getApiErrorMessage(error, 'Upload failed')}: ${f.name}`,
+        });
       }
     }
 

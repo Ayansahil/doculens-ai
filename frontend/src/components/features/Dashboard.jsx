@@ -18,6 +18,7 @@ import { useApp } from "../../context/AppContext";
 import {
   formatDate,
   formatFileSize,
+  getApiErrorMessage,
   getRiskBadge,
   getStatusBadgeVariant,
   RISK_DISCLAIMER_TEXT,
@@ -97,9 +98,10 @@ const Dashboard = () => {
       await fetchDashboardStats({ silent: true });
     } catch (analysisError) {
       setActionError(
-        analysisError.response?.data?.message ||
-          analysisError.message ||
-          "Risk analysis failed. Please try again."
+        getApiErrorMessage(
+          analysisError,
+          "Risk analysis failed. Please try again.",
+        ),
       );
     } finally {
       setRunningId(null);

@@ -1,5 +1,7 @@
 import { supabase } from '../config/db.js';
 import * as riskService from '../services/risk.service.js';
+import { getQuotaService } from '../services/rate-limit.service.js';
+import { getAiUsageService } from '../services/ai-usage.service.js';
 
 const DEFAULT_STORAGE_LIMIT_GB = 10;
 
@@ -120,6 +122,7 @@ export const getDashboardStats = async (req, res) => {
       file_size: Number(doc.file_size) || 0,
       date: doc.created_at,
       description: doc.description || 'No description',
+      user_id: doc.user_id,
       risk: analysisSummary(analyses.map[doc.id]),
     }));
 
@@ -189,6 +192,38 @@ export const getDashboardStats = async (req, res) => {
     res.status(500).json({
       message: 'Failed to fetch dashboard stats',
       error: error.message,
+    });
+  }
+};
+
+/**
+ * Self-only AI usage + daily quota summary. Never accepts a user id from the
+ * client; the authenticated JWT identity is the only key used.
+ */
+export const getAiUsage = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const quotaService = await getQuotaService();
+    const quota = await quotaService.peek(userId);
+
+    const usageService = await getAiUsageService();
+    const usage = await usageService.getSummary(userId, { quota });
+
+    return res.json({
+      success: true,
+      date: usage.date,
+      source: usage.source,
+      quota,
+      totals: usage.totals,
+      byKind: usage.byKind,
+      recent: usage.recent,
+    });
+  } catch (error) {
+    console.error('AI usage summary error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch AI usage summary',
     });
   }
 };

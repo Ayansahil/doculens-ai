@@ -7,6 +7,7 @@ import { useApp } from "../context/AppContext";
 import { documentService } from "../services/documentService";
 import ConfirmModal from "../components/ui/ConfirmModal";
 import StatusModal from "../components/ui/StatusModal";
+import { getApiErrorMessage } from "../utils/helpers";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
@@ -145,16 +146,15 @@ const Documents = () => {
         fetchDocuments();
       } catch (err) {
         console.error("Risk analysis failed:", err);
-        setRiskAnalysis(err.response?.data?.analysis || null);
-        setAnalysisError(
-          err.response?.data?.message ||
-            err.message ||
-            "Risk analysis failed. Please try again."
+        const message = getApiErrorMessage(
+          err,
+          "Risk analysis failed. Please try again.",
         );
+        setRiskAnalysis(err.response?.data?.analysis || null);
+        setAnalysisError(message);
         addNotification({
           type: "error",
-          message:
-            err.response?.data?.message || "Risk analysis failed",
+          message,
         });
       } finally {
         setAnalysisLoading(false);

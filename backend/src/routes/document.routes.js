@@ -12,6 +12,10 @@ import {
 } from '../controllers/document.controller.js';
 import { upload } from '../middleware/upload.middleware.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
+import {
+  uploadUserRateLimit,
+  riskUserRateLimit,
+} from '../middleware/rate-limit.middleware.js';
 
 const router = express.Router();
 
@@ -19,7 +23,8 @@ const router = express.Router();
 router.use(requireAuth);
 
 // ✅ UPLOAD ROUTE MUST BE ABOVE :id
-router.post('/upload', upload.single('file'), uploadDocument);
+// Per-user upload limit runs before multer so rejected requests never write a file.
+router.post('/upload', uploadUserRateLimit, upload.single('file'), uploadDocument);
 
 // ✅ GET ALL DOCUMENTS
 router.get('/', getAllDocuments);
@@ -32,7 +37,7 @@ router.post("/:id/summarize", summarizeDocument);
 
 // ✅ RISK ANALYSIS (must be above /:id for GET)
 router.get('/:id/analysis', getDocumentAnalysis);
-router.post('/:id/analyze', analyzeDocument);
+router.post('/:id/analyze', riskUserRateLimit, analyzeDocument);
 
 // ✅ GET DOCUMENT BY ID (LAST AMONG GETs)
 router.get('/:id', getDocumentById);

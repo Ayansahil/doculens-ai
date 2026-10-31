@@ -1,6 +1,7 @@
 import express from 'express';
 import { sendChatMessage, getChatHistory } from '../controllers/chat.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
+import { chatUserRateLimit } from '../middleware/rate-limit.middleware.js';
 
 const router = express.Router();
 
@@ -18,6 +19,6 @@ router.get('/', (req, res) => {
 });
 
 // ✅ POST /chat - Send message
-router.post('/', sendChatMessage);
+router.post('/', chatUserRateLimit, sendChatMessage);
 
 export default router;

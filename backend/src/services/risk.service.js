@@ -1,5 +1,9 @@
-import fetch from "node-fetch";
 import { supabase } from "../config/db.js";
+import { limits } from "../config/limits.js";
+import * as aiClient from "./ai-client.service.js";
+import { getLockService } from "./lock.service.js";
+import { getQuotaService } from "./rate-limit.service.js";
+import { getAiUsageService } from "./ai-usage.service.js";
 
 /**
  * Real, evidence-grounded document risk analysis.
@@ -12,11 +16,11 @@ import { supabase } from "../config/db.js";
  */
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const PROVIDER_TIMEOUT_MS = 60000;
-const MAX_SOURCE_CHARS = 14000;
+const PROVIDER_TIMEOUT_MS = limits.riskProviderTimeoutMs;
+const MAX_SOURCE_CHARS = limits.riskMaxSourceChars;
 const MIN_SOURCE_CHARS = 200;
 const MAX_FINDINGS = 6;
-const PROCESSING_STALE_MS = 2 * 60 * 1000;
+const PROCESSING_STALE_MS = limits.analysisStaleMs;
 
 export const DEFAULT_RISK_MODEL = "nvidia/nemotron-3.5-super-vl:free";
 
@@ -98,12 +102,13 @@ const SEVERITY_WEIGHTS = { high: 30, medium: 15, low: 5 };
 const LEVEL_RANK = { Low: 1, Medium: 2, High: 3 };
 
 export class RiskError extends Error {
-  constructor(message, status = 500, code = "RISK_ERROR", analysis = null) {
+  constructor(message, status = 500, code = "RISK_ERROR", analysis = null, retryAfter = null) {
     super(message);
     this.name = "RiskError";
     this.status = status;
     this.code = code;
     this.analysis = analysis;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -338,14 +343,21 @@ export const buildAnalysisResult = (rawResponse, sourceText) => {
 export const mapProviderError = (status, rawBody = "") => {
   const body = String(rawBody || "");
   const quotaLike =
-    status === 429 ||
-    /rate limit|quota|free-models-per-day/i.test(body);
+    /quota|free-models-per-day|daily limit/i.test(body) ||
+    (status === 402 && /credit|balance|funds/i.test(body));
 
   if (quotaLike) {
     return new RiskError(
       "The free AI request limit has been reached. Please try again after the quota resets.",
       429,
       "QUOTA"
+    );
+  }
+  if (status === 429) {
+    return new RiskError(
+      "The AI provider is rate limiting requests. Please try again shortly.",
+      429,
+      "PROVIDER_RATE_LIMITED"
     );
   }
   if (status === 402) {
@@ -411,22 +423,13 @@ const callModel = async (sourceText, doc) => {
     sourceText,
   ].join("\n");
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
-
   console.log(`[risk] Requesting analysis via model "${model}" (${sourceText.length} chars)`);
 
-  let response;
   try {
-    response = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3001",
-        "X-Title": "DocuLens AI",
-      },
-      body: JSON.stringify({
+    const result = await aiClient.postJson({
+      url: OPENROUTER_URL,
+      apiKey,
+      body: {
         model,
         messages: [
           { role: "system", content: systemPrompt },
@@ -444,45 +447,86 @@ const callModel = async (sourceText, doc) => {
           require_parameters: true,
         },
         temperature: 0.1,
-        max_tokens: 3000,
-      }),
-      signal: controller.signal,
+        max_tokens: limits.riskMaxOutputTokens,
+      },
+      headers: {
+        "HTTP-Referer": "http://localhost:3001",
+        "X-Title": "DocuLens AI",
+      },
+      timeoutMs: PROVIDER_TIMEOUT_MS,
+      deadlineMs: limits.riskAiDeadlineMs,
+      maxRetries: limits.aiMaxRetries,
+      label: `Risk model "${model}"`,
     });
-  } catch (fetchError) {
-    clearTimeout(timer);
-    if (fetchError.name === "AbortError" || controller.signal.aborted) {
-      console.error(`[risk] Timeout (${PROVIDER_TIMEOUT_MS}ms) waiting for model "${model}"`);
-      throw new RiskError(
-        "The AI provider is responding slowly right now. Please try again in a moment.",
-        504,
-        "TIMEOUT"
-      );
+
+    if (result.ok) {
+      console.log(`[risk] Received HTTP ${result.status} from model "${model}" after ${result.attempts} attempt(s)`);
+    } else {
+      console.error(`[risk] Provider returned HTTP ${result.status} for model "${model}" after ${result.attempts} attempt(s)`);
     }
-    console.error(`[risk] Network error reaching OpenRouter: ${fetchError.message}`);
+
+    return {
+      response: { ok: result.ok, status: result.status },
+      raw: result.raw,
+      attempts: result.attempts,
+      retryAfterMs: result.retryAfterMs,
+      quotaExhausted: Boolean(result.quotaExhausted),
+    };
+  } catch (error) {
+    if (error instanceof aiClient.AiClientError) {
+      throw new RiskError(error.message, error.status || 502, error.code || "PROVIDER_UNREACHABLE");
+    }
+    console.error(`[risk] Unexpected provider error: ${error.message}`);
     throw new RiskError(
       "Could not reach the AI provider. Please try again.",
       502,
       "PROVIDER_UNREACHABLE"
     );
-  } finally {
-    clearTimeout(timer);
   }
+};
 
+const consumeRiskQuota = async (userId) => {
   try {
-    const raw = await response.text();
-    if (!response.ok) {
-      console.error(`[risk] Provider returned HTTP ${response.status} for model "${model}"`);
-    } else {
-      console.log(`[risk] Received HTTP ${response.status} from model "${model}"`);
-    }
-    return { response, raw };
-  } catch (readError) {
-    console.error(`[risk] Failed reading provider response: ${readError.message}`);
-    throw new RiskError(
-      "The AI response could not be read. Please try again.",
-      502,
-      "PROVIDER_UNREACHABLE"
-    );
+    const quotaService = await getQuotaService();
+    return await quotaService.consume(userId);
+  } catch (error) {
+    console.error("[risk] quota check failed:", error?.message || error);
+    return {
+      allowed: true,
+      unlimited: true,
+      limit: 0,
+      used: 0,
+      remaining: null,
+      retryAfter: 0,
+      resetAt: null,
+    };
+  }
+};
+
+const recordRiskUsage = async ({
+  userId,
+  status,
+  model = getRiskModel(),
+  usage = null,
+  durationMs = null,
+  errorCode = null,
+}) => {
+  try {
+    const usageService = await getAiUsageService();
+    await usageService.record({
+      userId,
+      kind: "risk",
+      model,
+      status,
+      requestCount: 1,
+      promptTokens: usage?.promptTokens,
+      completionTokens: usage?.completionTokens,
+      totalTokens: usage?.totalTokens,
+      durationMs,
+      errorCode,
+    });
+  } catch (error) {
+    console.warn("[risk] usage tracking skipped:", error?.message || error);
   }
 };
 
@@ -632,6 +676,7 @@ export const runRiskAnalysis = async ({ title, type, category, text }) => {
 /**
  * Analyzes and persists a document's risk result.
  * Cached unless `force` is true. Failures never overwrite a successful result.
+ * A short-lived lock prevents duplicate simultaneous analyses of one document.
  */
 export const analyzeDocumentRisk = async (documentId, userId, { force = false } = {}) => {
   const doc = await getOwnedDocument(documentId, userId);
@@ -655,10 +700,52 @@ export const analyzeDocumentRisk = async (documentId, userId, { force = false } 
     }
   }
 
-  // Mark as processing without destroying a previous successful result.
-  await saveAnalysis(documentId, userId, { status: "processing", error: null });
+  const lockService = await getLockService();
+  const lock = await lockService.acquire(`risk:${documentId}`, {
+    ttlMs: limits.riskAnalysisLockTtlMs,
+  });
+
+  if (!lock.acquired) {
+    let latest = existing;
+    try {
+      latest = await getDocumentAnalysis(documentId, userId);
+    } catch (error) {
+      if (error.code === "ANALYSIS_TABLE_MISSING") throw error;
+      console.warn("[risk] Could not refresh analysis while locked:", error.message);
+    }
+
+    if (latest?.status === "processing") {
+      return {
+        analysis: latest,
+        cached: true,
+        warning: "A risk analysis for this document is already in progress.",
+      };
+    }
+
+    throw new RiskError(
+      "A risk analysis for this document is already in progress. Please retry shortly.",
+      409,
+      "ANALYSIS_IN_PROGRESS",
+      latest || null,
+      lock.retryAfter,
+    );
+  }
 
   try {
+    // Re-check inside the lock: another instance may have completed while we
+    // were waiting to acquire it.
+    try {
+      const latest = await getDocumentAnalysis(documentId, userId);
+      if (latest) existing = latest;
+    } catch (error) {
+      if (error.code === "ANALYSIS_TABLE_MISSING") throw error;
+      throw error;
+    }
+
+    if (!force && existing && ["completed", "insufficient_evidence"].includes(existing.status)) {
+      return { analysis: existing, cached: true };
+    }
+
     const source = await buildSourceText(doc);
     const coverage = {
       truncated: source.truncated,
@@ -683,32 +770,82 @@ export const analyzeDocumentRisk = async (documentId, userId, { force = false } 
       return { analysis, cached: false };
     }
 
-    const { response, raw } = await callModel(source.text, doc);
-    if (!response.ok) throw mapProviderError(response.status, raw);
-
-    const result = buildAnalysisResult(raw, source.text);
-    if (!result.ok) {
-      throw new RiskError(result.reason, 502, result.code || "INVALID_JSON");
+    // Quota is charged only when a model call is actually about to run.
+    const quota = await consumeRiskQuota(userId);
+    if (!quota.allowed) {
+      const quotaError = new RiskError(
+        "Your daily AI request limit has been reached. Please try again after the quota resets.",
+        429,
+        "AI_DAILY_QUOTA_EXCEEDED",
+        existing || null,
+        quota.retryAfter,
+      );
+      quotaError.quota = quota;
+      throw quotaError;
     }
 
-    const analysis = await saveAnalysis(documentId, userId, {
-      status: result.status,
-      risk_level: result.riskLevel,
-      risk_score: result.riskScore,
-      summary: result.summary,
-      findings: result.findings,
-      coverage,
-      error: null,
-      model: getRiskModel(),
-      analyzed_at: new Date().toISOString(),
-    });
+    // Mark as processing without destroying a previous successful result.
+    await saveAnalysis(documentId, userId, { status: "processing", error: null });
 
-    return { analysis, cached: false };
+    const startedAt = Date.now();
+    try {
+      const { response, raw, attempts, retryAfterMs, quotaExhausted } = await callModel(
+        source.text,
+        doc,
+      );
+      if (!response.ok) {
+        const mapped = mapProviderError(response.status, raw);
+        mapped.attempts = attempts;
+        if (retryAfterMs) mapped.retryAfter = Math.max(1, Math.ceil(retryAfterMs / 1000));
+        if (quotaExhausted) mapped.quotaExhausted = true;
+        throw mapped;
+      }
+
+      const result = buildAnalysisResult(raw, source.text);
+      if (!result.ok) {
+        throw new RiskError(result.reason, 502, result.code || "INVALID_JSON");
+      }
+
+      const analysis = await saveAnalysis(documentId, userId, {
+        status: result.status,
+        risk_level: result.riskLevel,
+        risk_score: result.riskScore,
+        summary: result.summary,
+        findings: result.findings,
+        coverage,
+        error: null,
+        model: getRiskModel(),
+        analyzed_at: new Date().toISOString(),
+      });
+
+      await recordRiskUsage({
+        userId,
+        status: "success",
+        usage: aiClient.extractUsage(raw),
+        durationMs: Date.now() - startedAt,
+      });
+
+      return { analysis, cached: false };
+    } catch (error) {
+      await recordRiskUsage({
+        userId,
+        status: "error",
+        errorCode: error.code || "RISK_FAILED",
+        durationMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
   } catch (error) {
     const mapped =
       error instanceof RiskError
         ? error
         : new RiskError(error.message || "Risk analysis failed", 500, "ANALYSIS_FAILED");
+
+    // A quota rejection is not an analysis failure and must not overwrite the
+    // stored analysis state.
+    if (mapped.code === "AI_DAILY_QUOTA_EXCEEDED") {
+      throw mapped;
+    }
 
     // Preserve a previous successful result; only record the latest error.
     if (existing && ["completed", "insufficient_evidence"].includes(existing.status)) {
@@ -739,5 +876,7 @@ export const analyzeDocumentRisk = async (documentId, userId, { force = false } 
     }
 
     throw mapped;
+  } finally {
+    await lock.release();
   }
 };

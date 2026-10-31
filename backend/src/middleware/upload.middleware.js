@@ -2,6 +2,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { limits } from '../config/limits.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +19,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
+    cb(null, uniqueSuffix + '-' + path.basename(file.originalname));
   }
 });
 
@@ -40,14 +41,20 @@ const fileFilter = (req, file, cb) => {
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only PDF, DOC, DOCX, TXT, XLSX, PPTX, and images are allowed.'), false);
+    const error = new Error(
+      'Invalid file type. Only PDF, DOC, DOCX, TXT, XLSX, PPTX, and images are allowed.',
+    );
+    error.status = 415;
+    error.code = 'INVALID_FILE_TYPE';
+    cb(error, false);
   }
 };
 
 export const upload = multer({
   storage: storage,
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 52428800
+    fileSize: limits.maxFileSizeBytes,
+    files: 1,
   },
   fileFilter: fileFilter
 });

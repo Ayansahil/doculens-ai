@@ -7,6 +7,8 @@ import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import * as ragService from "../services/rag.service.js";
 import * as riskService from "../services/risk.service.js";
+import { limits } from "../config/limits.js";
+import { sendRateLimited } from "../utils/rate-limit-response.js";
 
 // For ES modules __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -229,9 +231,24 @@ export const uploadDocument = async (req, res) => {
     console.log("  - Size:", req.file.size, "bytes");
     console.log("  - Mimetype:", req.file.mimetype);
 
-    const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
-    console.log("📋 Metadata:", metadata);
-
+    let metadata = {};
+    if (req.body.metadata) {
+      try {
+        metadata = JSON.parse(req.body.metadata);
+      } catch {
+        const error = new Error("Document metadata must be valid JSON.");
+        error.status = 400;
+        error.code = "INVALID_METADATA";
+        throw error;
+      }
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+        const error = new Error("Document metadata must be a JSON object.");
+        error.status = 400;
+        error.code = "INVALID_METADATA";
+        throw error;
+      }
+    }
+    console.log("📋 Metadata keys:", Object.keys(metadata));
     const fileExtension = path
       .extname(req.file.originalname)
       .substring(1)
@@ -253,6 +270,15 @@ export const uploadDocument = async (req, res) => {
       console.log(`📊 Total characters: ${extractedText.length}`);
     }
 
+    // Bound stored/model text so an unusually large document cannot exhaust
+    // memory or trigger unbounded embedding calls.
+    const safeExtractedText = extractedText
+      ? String(extractedText).slice(0, limits.maxExtractedTextChars)
+      : extractedText;
+    const textTruncated = Boolean(
+      extractedText && extractedText.length > limits.maxExtractedTextChars,
+    );
+
     const documentData = {
       title: metadata.title || req.file.originalname,
       type: fileExtension,
@@ -262,7 +288,7 @@ export const uploadDocument = async (req, res) => {
       file_url: `/uploads/${req.file.filename}`,
       file_size: req.file.size,
       project: metadata.project || null,
-      extracted_text: extractedText,
+      extracted_text: safeExtractedText,
       user_id: req.user.id,
     };
 
@@ -288,10 +314,12 @@ export const uploadDocument = async (req, res) => {
     createdDocument = data;
 
     // 🚀 ASYNC CHUNKING & EMBEDDINGS (RAG)
-    if (extractedText) {
+    if (safeExtractedText) {
       console.log("🤖 Starting RAG processing...");
       try {
-        await ragService.chunkAndStore(data.id, extractedText);
+        await ragService.chunkAndStore(data.id, safeExtractedText, {
+          userId: req.user.id,
+        });
         // Mark document as analysed on successful chunking & embedding storage
         const { data: updatedDoc, error: updateError } = await supabase
           .from("documents")
@@ -331,7 +359,9 @@ export const uploadDocument = async (req, res) => {
 
     console.log("========================================\n");
 
-    res.status(201).json(data);
+    res.status(201).json(
+      textTruncated ? { ...data, text_truncated: true } : data,
+    );
   } catch (error) {
     console.error("\n❌❌❌ UPLOAD ERROR ❌❌❌");
     console.error("Error message:", error.message);
@@ -345,9 +375,13 @@ export const uploadDocument = async (req, res) => {
         .catch(() => {});
     }
 
-    res.status(500).json({
-      message: "Failed to upload document",
-      error: error.message,
+    const status = Number(error.status || error.statusCode) || 500;
+    res.status(status).json({
+      success: false,
+      code: error.code || null,
+      message:
+        status >= 500 ? "Failed to upload document" : error.message || "Upload rejected",
+      ...(status >= 500 ? { error: error.message } : {}),
     });
   }
 };
@@ -511,6 +545,49 @@ export const analyzeDocument = async (req, res) => {
     const status =
       error.status ||
       (error.code === "ANALYSIS_TABLE_MISSING" ? 503 : 500);
+
+    if (status === 429) {
+      if (error.quota) {
+        return sendRateLimited(res, {
+          code: error.code || "AI_DAILY_QUOTA_EXCEEDED",
+          message: error.message,
+          info: {
+            ttlMs: Math.max(1, Number(error.retryAfter) || 60) * 1000,
+            count: error.quota.used,
+          },
+          limit: error.quota.limit,
+          scope: "ai-daily",
+          windowMs: 24 * 60 * 60 * 1000,
+          quota: error.quota,
+        });
+      }
+
+      const retryAfter = Math.max(1, Number(error.retryAfter) || 60);
+      res.set("Retry-After", String(retryAfter));
+      return res.status(429).json({
+        success: false,
+        status: 429,
+        code: error.code || "AI_RATE_LIMITED",
+        message: error.message || "AI request limit reached. Please try again later.",
+        error: error.message || "AI request limit reached. Please try again later.",
+        retryAfter,
+        disclaimer: riskService.RISK_DISCLAIMER,
+      });
+    }
+
+    if (status === 409) {
+      const retryAfter = Math.max(1, Number(error.retryAfter) || 30);
+      res.set("Retry-After", String(retryAfter));
+      return res.status(409).json({
+        success: false,
+        status: 409,
+        code: error.code || "ANALYSIS_IN_PROGRESS",
+        message: error.message || "A risk analysis for this document is already in progress.",
+        retryAfter,
+        analysis: error.analysis || null,
+        disclaimer: riskService.RISK_DISCLAIMER,
+      });
+    }
 
     res.status(status).json({
       success: false,

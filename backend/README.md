@@ -11,6 +11,7 @@ Production-ready Node.js backend API for DocuLens AI document management system.
 - **RAG** - Text chunking + 2048-dim embeddings (`nvidia/nemotron-3-embed-1b:free`)
 - **Multer** - File upload handling
 - **pdfjs-dist / mammoth** - Text extraction (PDF / DOCX / TXT)
+- **ioredis** - Optional shared rate-limit/quota/lock store
 - **CORS** - Cross-origin resource sharing
 
 ## Project Structure
@@ -21,10 +22,11 @@ backend/
 │   ├── app.js                    # Express app configuration
 │   ├── server.js                 # Server entry point (EADDRINUSE handler)
 │   ├── config/
-│   │   └── db.js                 # Supabase database configuration
+│   │   ├── db.js                 # Supabase database configuration
+│   │   └── limits.js             # Env-driven rate limits, quotas, input caps
 │   ├── controllers/
 │   │   ├── document.controller.js    # Document CRUD + download + summarize
-│   │   ├── analytics.controller.js   # Dashboard & analytics
+│   │   ├── analytics.controller.js   # Dashboard, storage & AI usage
 │   │   └── chat.controller.js        # Chat (OpenRouter + RAG)
 │   ├── routes/
 │   │   ├── document.routes.js
@@ -32,9 +34,16 @@ backend/
 │   │   └── chat.routes.js
 │   ├── middleware/
 │   │   ├── auth.middleware.js        # requireAuth (Supabase JWT)
+│   │   ├── rate-limit.middleware.js  # IP / per-user / failed-auth limits
 │   │   └── upload.middleware.js      # Multer file upload config
 │   └── services/
-│       └── rag.service.js            # Chunking, embeddings, retrieval
+│       ├── rag.service.js            # Chunking, embeddings, retrieval
+│       ├── risk.service.js           # Evidence-grounded risk analysis
+│       ├── ai-client.service.js      # Bounded retries + deadlines
+│       ├── ai-usage.service.js       # Metadata-only usage audit
+│       ├── rate-limit.service.js     # Daily AI quota
+│       ├── rate-store.service.js     # Memory / optional Redis store
+│       └── lock.service.js           # Duplicate-analysis locks
 ├── supabase_auth_migration.sql       # Auth: user_id backfill
 ├── supabase_migration_2048.sql       # 2048-dim embedding columns
 ├── uploads/                      # Uploaded files directory
@@ -267,6 +276,22 @@ This backend is AI-ready and can be extended with:
 - Advanced search and filtering
 - Cloud storage integration (AWS S3)
 - Real-time notifications (webhooks)
+
+## Rate limiting and AI usage control
+
+API traffic, AI spend and input sizes are controlled server-side. See
+[`RATE_LIMITING.md`](./RATE_LIMITING.md) for architecture, defaults, response
+formats and the Redis requirement for multi-instance deployments.
+
+- IP limits protect all API traffic, public `/uploads` and failed JWT attempts.
+- Per-user limits cover uploads, chat and risk analysis.
+- Daily AI quota (`AI_DAILY_REQUEST_QUOTA`, default 50) applies to chat + risk.
+- Duplicate risk analyses are deduplicated with a short-lived lock.
+- `GET /analytics/ai-usage` returns the caller's own quota and usage metadata.
+- Apply `supabase_ai_usage_migration.sql` to persist usage; without it the
+  audit falls back to bounded memory.
+- Redis is optional (`REDIS_URL`) and required only to share limits/locks
+  across multiple backend instances.
 
 ## Testing
 
